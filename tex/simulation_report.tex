@@ -1,0 +1,789 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{parskip}
+\graphicspath{{../figures/}}
+
+\title{Two-Type Branching Process with Pool Splitting:\\
+       Analysis of Growth, Composition, and Seeding Effects}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\bigskip
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Model Description}
+\label{sec:model}
+
+We simulate a two-type continuous-time branching process with cell types $X$
+and $Y$.  Each cell divides independently and exponentially:
+
+\begin{align}
+  X \to X + X & \quad \text{rate } a \text{ per } X \text{ cell,} \\
+  X \to X + Y & \quad \text{rate } b \text{ per } X \text{ cell,} \\
+  Y \to Y + X & \quad \text{rate } c \text{ per } Y \text{ cell,} \\
+  Y \to Y + Y & \quad \text{rate } d \text{ per } Y \text{ cell.}
+\end{align}
+
+Each division event creates exactly one new cell of the appropriate type;
+the parent cell is not removed.  All four Poisson clocks are independent.
+Events are sampled exactly using the Gillespie
+algorithm~\cite{gillespie1977,gillespie1976}: at each step the time to the
+next event is drawn from an exponential distribution with rate equal to the
+total propensity, and the event type is chosen proportionally to the
+individual propensities.
+
+Throughout this analysis the parameters are fixed at
+$a = 0.5$, $b = 0.1$, $c = 0.05$, $d = 0.4$, with initial condition
+$n_X(0) = 1$, $n_Y(0) = 0$.  The process is stopped when the \emph{total}
+cell count across all pools exceeds $N = 1000$.
+
+\subsection{Theoretical long-run composition}
+
+The mean dynamics satisfy
+\[
+  \frac{d}{dt}\begin{pmatrix}X\\Y\end{pmatrix}
+  = \underbrace{\begin{pmatrix}a & c \\ b & d\end{pmatrix}}_{A}
+    \begin{pmatrix}X\\Y\end{pmatrix}.
+\]
+
+The dominant eigenvalue of $A$ determines the exponential growth rate and
+the corresponding eigenvector determines the long-run composition:
+
+\[
+  \lambda_1
+  = \frac{(a+d) + \sqrt{(a-d)^2 + 4bc}}{2}
+  = \frac{0.9 + \sqrt{0.03}}{2}
+  \approx 0.537.
+\]
+
+The stable-composition eigenvector satisfies
+$(A - \lambda_1 I)\mathbf{v} = 0$, giving
+
+\[
+  \frac{Y}{X}
+  = \frac{\lambda_1 - a}{c}
+  = \frac{0.037}{0.05}
+  \approx 0.732,
+  \qquad
+  \frac{X}{X+Y}
+  \approx 0.578.
+\]
+
+These values are the theoretical equilibrium targets regardless of initial
+conditions.
+
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Theoretical Variance of the Two Ratios}
+\label{sec:variance}
+
+\subsubsection{Moment equations for a single pool}
+
+Because every cell divides independently, the process is a \emph{multi-type
+	linear birth process} and its moment equations can be derived from the master
+equation.  Define, for a pool starting from a single type-$X$ founder:
+\[
+\mu_X(t) = E[X(t)], \quad \mu_Y(t) = E[Y(t)],
+\]
+\[
+\sigma_{XX}(t) = \operatorname{Var}(X(t)), \quad
+\sigma_{YY}(t) = \operatorname{Var}(Y(t)), \quad
+\sigma_{XY}(t) = \operatorname{Cov}(X(t), Y(t)).
+\]
+
+The first moments satisfy
+\begin{equation}
+	\frac{d}{dt}\begin{pmatrix}\mu_X\\\mu_Y\end{pmatrix}
+	= A\begin{pmatrix}\mu_X\\\mu_Y\end{pmatrix},
+	\qquad A = \begin{pmatrix}a & c \\ b & d\end{pmatrix},
+	\label{eq:mean_ode}
+\end{equation}
+so $(\mu_X(t),\mu_Y(t))^{\top} = e^{At}(1,0)^{\top}$.
+
+Applying the generator to $X^2$, $XY$, and $Y^2$ and subtracting the square
+of the mean yields the \emph{second central moment ODE system}:
+\begin{align}
+	\frac{d\sigma_{XX}}{dt} &= 2a\,\sigma_{XX} + 2c\,\sigma_{XY}
+	+ (a\mu_X + c\mu_Y), \label{eq:sxx}\\
+	\frac{d\sigma_{XY}}{dt} &= b\,\sigma_{XX} + (a+d)\,\sigma_{XY}
+	+ c\,\sigma_{YY}, \label{eq:sxy}\\
+	\frac{d\sigma_{YY}}{dt} &= 2b\,\sigma_{XY} + 2d\,\sigma_{YY}
+	+ (b\mu_X + d\mu_Y), \label{eq:syy}
+\end{align}
+with initial conditions $\sigma_{XX}(0)=\sigma_{XY}(0)=\sigma_{YY}(0)=0$.
+This is a \emph{linear} system driven by $(\mu_X,\mu_Y)$, so it can be
+integrated exactly (e.g.\ via \texttt{scipy.integrate.odeint}).
+
+For a pool starting with $n_0$ type-$X$ founders, independence of individuals
+gives
+\[
+\operatorname{Var}(X(t)) = n_0\,\sigma_{XX}(t), \quad
+\operatorname{Var}(Y(t)) = n_0\,\sigma_{YY}(t), \quad
+\operatorname{Cov}(X(t),Y(t)) = n_0\,\sigma_{XY}(t).
+\]
+
+\subsubsection{Delta method for the ratio variances}
+
+Let $N = X + Y$, $\alpha = \mu_X/(\mu_X+\mu_Y)$, $\beta = \mu_Y/(\mu_X+\mu_Y)$,
+and $r = \mu_Y/\mu_X$.  Applying the delta method to the two ratios:
+
+\begin{equation}
+	\operatorname{Var}\!\left(\frac{X}{X+Y}\right)
+	\approx
+	\frac{\beta^2\,\sigma_{XX} + \alpha^2\,\sigma_{YY}
+		- 2\alpha\beta\,\sigma_{XY}}{(\mu_X+\mu_Y)^2},
+	\label{eq:var_r1}
+\end{equation}
+
+\begin{equation}
+	\operatorname{Var}\!\left(\frac{Y}{X}\right)
+	\approx
+	\frac{r^2\,\sigma_{XX} + \sigma_{YY} - 2r\,\sigma_{XY}}{\mu_X^2}.
+	\label{eq:var_r2}
+\end{equation}
+
+Both approximations are first-order and accurate when the population is large
+relative to its standard deviation.
+
+\subsubsection{Long-run behavior: spectral gap and concentration}
+
+The homogeneous part of the second-moment system \eqref{eq:sxx}--\eqref{eq:syy}
+has eigenvalues $\{2\lambda_1,\; \lambda_1+\lambda_2,\; 2\lambda_2\}$.
+Because $\lambda_1 > \lambda_2$, the solution grows as $e^{2\lambda_1 t}$ for
+large $t$, so $\sigma_{XX}, \sigma_{YY}, \sigma_{XY} \sim C\,e^{2\lambda_1 t}$.
+At the same time $\mu_X, \mu_Y \sim C' e^{\lambda_1 t}$, and hence
+$(\mu_X+\mu_Y)^2 \sim e^{2\lambda_1 t}$.
+
+The numerator and denominator of \eqref{eq:var_r1} thus both grow as
+$e^{2\lambda_1 t}$, which would naively suggest a constant limiting variance.
+However, the high positive correlation between $X$ and $Y$ (both driven by the
+same Malthusian martingale~\cite{kesten1966,athreya1972}
+$W = \lim_{t\to\infty} e^{-\lambda_1 t}
+\mathbf{u}^{\top}\mathbf{Z}(t)$, where $\mathbf{u}$ is the left eigenvector
+of $A$ normalised so that $\mathbf{u}^{\top}\mathbf{v}_1 = 1$) makes the numerator
+$\beta^2\sigma_{XX}+\alpha^2\sigma_{YY}-2\alpha\beta\sigma_{XY}$ grow
+\emph{slower} than $e^{2\lambda_1 t}$.
+
+The correct large-$t$ result, derived from the spectral decomposition, is
+\begin{equation}
+	\operatorname{Var}\!\left(\frac{X}{X+Y}\right)
+	\;\sim\; K\,e^{-2\varepsilon t},
+	\qquad \varepsilon = \lambda_1 - \lambda_2
+	= \sqrt{(a-d)^2+4bc}
+	\approx 0.173,
+	\label{eq:var_asymp}
+\end{equation}
+with an analogous decay for $\operatorname{Var}(Y/X)$.
+The variance therefore decays \emph{exponentially} at a rate equal to twice
+the \textbf{spectral gap} $\varepsilon$ between the two eigenvalues of $A$.
+
+Intuitively, the fluctuation in $X/(X+Y)$ is driven by the sub-dominant
+eigenvector component of $\mathbf{Z}(t)$, which decays relative to the
+dominant term at rate $e^{(\lambda_2-\lambda_1)t} = e^{-\varepsilon t}$.
+Because both $X$ and $Y$ share the same dominant Malthusian factor $W$,
+the $W$-randomness cancels in the ratio, and only the sub-dominant residual
+contributes to the variance.
+
+\paragraph{Practical implication.}
+Parameters with a \emph{larger} spectral gap (e.g.\ increasing $a-d$ or
+decreasing the cross-production rates $b,c$) lead to faster ratio convergence
+and smaller variance at any given time.  With our parameters,
+$\varepsilon \approx 0.173$, so the ratio variance halves roughly every
+$\ln 2/(2\varepsilon) \approx 2.0$ time units.
+
+\subsection{Implications for the split simulation}
+
+When multiple independent pools are combined, the variance of the
+\emph{combined} ratio is reduced by an additional factor.  If there are $K_p$
+pools each of approximate size $N/K_p$, and the pools are independent, then
+by the law of total variance the combined ratio variance is reduced by
+a factor of approximately $1/K_p$ relative to a single pool of the same total
+size — provided the seeding probability $p$ does not introduce systematic bias.
+When $p \neq \alpha_{\text{eq}}$ (the equilibrium fraction of $X$), successive
+pool resets introduce a systematic shift in composition, and the effective
+variance can actually \emph{increase} in the early transient phase before the
+pools equilibrate.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.9\textwidth]{fig_variance_theory.pdf}
+	\caption{Theoretical variance curves for $X/(X+Y)$ (left) and $Y/X$
+		(right), computed from the moment ODEs and delta method.  The
+		dashed line marks the large-$t$ decay $\propto e^{-2\varepsilon t}$.}
+	\label{fig:var_theory}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Single-Pool Baseline}
+\label{sec:single}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{fig_single.pdf}
+  \caption{Single-pool Gillespie simulation~\cite{gillespie1977} ($N = 1000$, $n_X(0)=1$,
+           $n_Y(0)=0$).  Top: counts of $X$ and $Y$ over time.
+           Bottom: ratios $X/(X+Y)$ and $Y/X$; dashed lines show
+           theoretical equilibrium values.}
+  \label{fig:single}
+\end{figure}
+
+Figure~\ref{fig:single} shows the baseline single-pool simulation.
+Key observations:
+
+\begin{itemize}
+  \item \textbf{Exponential growth.}  Starting from a single $X$ cell the
+        total population grows exponentially.  The growth is initially
+        stochastic; once the population is large the law of large numbers
+        removes visible fluctuations.
+
+  \item \textbf{X initially dominates.}  Because the process starts as pure
+        $X$ and $a \gg b$, $X$ cells accumulate rapidly before $Y$ cells
+        appear via $X \to Y$ events.
+
+  \item \textbf{Convergence of ratios.}  Both $X/(X+Y)$ and $Y/X$ converge
+        toward the theoretical equilibrium ($\approx 0.578$ and
+        $\approx 0.732$ respectively), illustrated by the dashed reference
+        lines.  The convergence is not monotone because of stochastic
+        fluctuations early in the process.
+
+  \item \textbf{Long-run Y/X $< 1$.}  $Y$ cells never exceed $X$ cells in
+        this regime.  This follows directly from $a > d$ (X self-renews
+        faster than Y) and the relative smallness of the cross-production
+        rates $b$ and $c$.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Pool-Splitting Simulation}
+\label{sec:split}
+
+\subsection{Splitting mechanism}
+
+When the total cell count in a pool reaches the threshold $K$, one cell is
+removed and placed into a new, independent pool.  The removed cell is of
+type $X$ with probability $p$ and type $Y$ with probability $1 - p$.
+The parent pool continues with $K - 1$ cells.
+
+In \emph{sequential} mode (used here) pools are processed via a first-in-first-out (FIFO) queue:
+the active pool is simulated until it either reaches $K$ or goes extinct,
+then both the parent (now $K-1$ cells) and the new child (1 cell) are placed
+at the end of the queue.  The cumulative inter-event waiting times define a
+global time axis shared across all pools.
+
+Note that a split does not change the total cell count; only division events
+do.  Therefore the global exponential growth rate $\lambda_1$ is unaffected
+by $K$ and $p$; what changes is the \emph{composition} trajectory.
+
+\subsection{Effect of splitting threshold $K$}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_K10.pdf}
+  \caption{Split simulation with $K = 10$.  Columns: $p = 0$ (left),
+           $p = 0.5$ (centre), $p = 1$ (right).  Top row: total $X$ and $Y$
+           counts.  Bottom row: ratios $X/(X+Y)$ and $Y/X$; dashed lines
+           mark theoretical equilibrium.}
+  \label{fig:K10}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_K50.pdf}
+  \caption{Same as Figure~\ref{fig:K10} for $K = 50$.}
+  \label{fig:K50}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_K100.pdf}
+  \caption{Same as Figure~\ref{fig:K10} for $K = 100$.}
+  \label{fig:K100}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig_K_comparison.pdf}
+  \caption{Cross-$K$ comparison of ratios at $p = 0.5$.  Left:
+           $X/(X+Y)$.  Right: $Y/X$.  Dashed grey line: theoretical
+           equilibrium.}
+  \label{fig:K_comp}
+\end{figure}
+
+\textbf{Small $K$ (frequent splits).}  With $K = 10$, each pool only
+undergoes $K - 1 = 9$ divisions before it splits.  Starting from a single
+cell this is rarely enough time to approach the equilibrium composition.
+Consequently:
+
+\begin{itemize}
+  \item More pools are created (lower $K$ $\Rightarrow$ more splits for the
+        same $N$), each inheriting a near-pure founder cell.
+  \item The founder effect is strong: a pool seeded by a single $X$ cell will
+        be $\sim$85\% $X$ by the time it reaches $K = 10$ (since $a/(a+b)
+        \approx 0.83$).
+  \item The combined ratios fluctuate more and can deviate substantially from
+        equilibrium, especially when $p \ne 0.5$.
+\end{itemize}
+
+\textbf{Large $K$ (infrequent splits).}  With $K = 100$, each pool runs long
+enough for the composition to approach the eigenvector equilibrium before it
+splits.  As a result:
+
+\begin{itemize}
+  \item Fewer pools are created, but each has a richer history.
+  \item The cell sampled for transfer is drawn from a near-equilibrium pool,
+        so it is $X$ with probability $\approx 0.578$ regardless of $p$
+        (as long as $p$ is not extreme).
+  \item The combined ratios converge more smoothly toward $0.578$ and
+        $0.732$, resembling the single-pool behaviour.
+\end{itemize}
+
+The cross-$K$ ratio comparison (Figure~\ref{fig:K_comp}) confirms that
+larger $K$ brings the trajectories closer to equilibrium earlier in the
+process.
+
+\subsection{Effect of seeding probability $p$}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig_p_comparison.pdf}
+  \caption{Cross-$p$ comparison of ratios at $K = 50$.  Left:
+           $X/(X+Y)$.  Right: $Y/X$.  Dashed grey line: theoretical
+           equilibrium.}
+  \label{fig:p_comp}
+\end{figure}
+
+The seeding probability $p$ determines which cell type founds each new pool
+and therefore strongly influences the transient composition, especially for
+small $K$.
+
+\textbf{$p = 1$ (always seed with $X$).}  Every new pool starts as a pure
+$X$ colony.  Since $a \gg b$, $X$ self-renews quickly and $Y$ cells
+accumulate slowly.  The combined $X/(X+Y)$ is pushed above the equilibrium
+value $0.578$, and $Y/X$ is correspondingly suppressed below $0.732$.
+
+\textbf{$p = 0$ (always seed with $Y$).}  Every new pool starts as pure $Y$.
+Since $d \gg c$, $Y$ self-renews strongly and $X$ cells grow slowly from
+$Y \to X$ events.  The combined $X/(X+Y)$ is pushed \emph{below} $0.578$,
+sometimes falling well below $0.5$ for small $K$.
+
+\textbf{$p = 0.5$ (equal probability).}  Seeding is symmetric: roughly half
+of new pools are $X$-seeded and half are $Y$-seeded.  The composition
+averages out, and the combined ratios converge toward equilibrium faster
+than the extreme cases.
+
+Figure~\ref{fig:p_comp} shows this pattern clearly for $K = 50$:
+$p = 1$ keeps $X/(X+Y)$ elevated; $p = 0$ depresses it; $p = 0.5$ lies
+between the two and reaches the dashed equilibrium line soonest.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Parallel Splitting}
+\label{sec:parallel}
+
+\subsection{Mechanism}
+
+In \emph{parallel} mode all pools advance simultaneously on a shared,
+real-valued time axis.  A global min-heap orders every pool's next potential
+division event by its scheduled time; at each step the soonest event fires,
+the affected pool is updated, and a new event is drawn from that pool.  When
+a pool reaches $K$ cells it immediately splits: the child pool (1 cell) enters
+the heap with its own first-event draw, and the parent pool (K-1 cells)
+continues.  All pools therefore coexist and grow concurrently, unlike the
+sequential mode where only one pool is active at a time.
+
+\subsection{Parallel vs sequential: results}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_par_K10.pdf}
+  \caption{Parallel-mode split simulation with $K = 10$.  Layout identical
+           to Figure~\ref{fig:K10}.}
+  \label{fig:par_K10}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_par_K50.pdf}
+  \caption{Parallel-mode split simulation with $K = 50$.}
+  \label{fig:par_K50}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_par_K100.pdf}
+  \caption{Parallel-mode split simulation with $K = 100$.}
+  \label{fig:par_K100}
+\end{figure}
+
+Comparing Figures~\ref{fig:par_K10}--\ref{fig:par_K100} with their sequential
+counterparts (Figures~\ref{fig:K10}--\ref{fig:K100}) reveals a striking
+difference: the parallel simulations reach the theoretical equilibrium
+$X/(X+Y)\approx 0.578$ almost regardless of $K$ and $p$, while the sequential
+simulations diverge markedly when $p \ne 0.5$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{fig_seq_vs_par_comp.pdf}
+  \caption{Sequential (solid) vs.\ parallel (dashed) for all three values of
+           $K$ at $p = 0.5$.  Left: $X/(X+Y)$.  Right: $Y/X$.
+           Dotted grey line: theoretical equilibrium.}
+  \label{fig:seq_vs_par_comp}
+\end{figure}
+
+\subsection{Why do the two modes differ so strongly?}
+
+\paragraph{Many simultaneous small pools in parallel.}
+Because all pools grow concurrently, the number of active pools at any moment
+is large.  The summary statistics show that at $K=10$ the parallel run
+produces $\sim 370$ pools while the sequential run also produces 200 pools but
+visits them one at a time.  Crucially, in parallel mode all pools coexist on
+the same time axis, so the combined ratio is an average over many small pools
+\emph{at the same time}.  By the law of large numbers this average is tightly
+concentrated near the mean regardless of the individual founder types.
+
+\paragraph{Averaging over $X$- and $Y$-founders in real time.}
+When $p=0$ in sequential mode, each new pool starts from a single $Y$ cell
+and grows to $K$ cells in isolation before the next pool is activated.  The
+result is a long stretch of near-pure $Y$ domination in the combined
+trajectory.  In parallel mode, $Y$-seeded pools and residual $X$-rich parent
+pools coexist simultaneously: their $X$-excesses and $Y$-excesses cancel in
+the sum at every instant, leaving the combined ratio close to equilibrium.
+
+\paragraph{Effect of $p$ is suppressed.}
+Table~\ref{tab:summary_par} confirms that the parallel combined composition
+is nearly independent of $p$: for $K=10$, $X/(X+Y)$ ranges from 0.569 to
+0.649 across all $p$, much tighter than the sequential range of 0.210 to 0.740.
+
+\subsection{Sequential vs parallel comparison figures}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_seq_vs_par_K10.pdf}
+  \caption{Direct overlay of sequential (top row) and parallel (bottom row)
+           ratio trajectories for $K = 10$, all values of $p$.}
+  \label{fig:seq_vs_par_K10}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_seq_vs_par_K50.pdf}
+  \caption{Same as Figure~\ref{fig:seq_vs_par_K10} for $K = 50$.}
+  \label{fig:seq_vs_par_K50}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_seq_vs_par_K100.pdf}
+  \caption{Same as Figure~\ref{fig:seq_vs_par_K10} for $K = 100$.}
+  \label{fig:seq_vs_par_K100}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Comparison with the Single-Pool Scenario}
+\label{sec:comparison}
+
+Table~\ref{tab:summary_seq} summarises the sequential results and
+Table~\ref{tab:summary_par} the parallel results.
+
+\begin{table}[H]
+\centering
+\caption{Sequential splitting: final composition (averages over last 10\% of
+         events).  Theory: $X/(X+Y)\approx 0.578$, $Y/X\approx 0.732$.}
+\label{tab:summary_seq}
+\begin{tabular}{lrrrrr}
+\toprule
+Scenario & Pools & $n_X$ & $n_Y$ & $X/(X+Y)$ & $Y/X$ \\
+\midrule
+Single pool      &   1  & 595 & 405 & 0.596 & 0.678 \\
+\addlinespace
+$K=10$, $p=0$   & 200  & 216 & 785 & 0.210 & 3.771 \\
+$K=10$, $p=0.5$ & 200  & 354 & 647 & 0.350 & 1.861 \\
+$K=10$, $p=1$   & 200  & 743 & 258 & 0.740 & 0.352 \\
+\addlinespace
+$K=50$,  $p=0$   &  40 & 369 & 632 & 0.376 & 1.657 \\
+$K=50$,  $p=0.5$ &  40 & 495 & 506 & 0.489 & 1.044 \\
+$K=50$,  $p=1$   &  40 & 689 & 312 & 0.688 & 0.454 \\
+\addlinespace
+$K=100$, $p=0$   &  20 & 444 & 557 & 0.459 & 1.178 \\
+$K=100$, $p=0.5$ &  20 & 494 & 507 & 0.511 & 0.959 \\
+$K=100$, $p=1$   &  20 & 648 & 353 & 0.646 & 0.549 \\
+\midrule
+\multicolumn{4}{l}{\emph{Theory (equilibrium)}} & 0.578 & 0.732 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Parallel splitting: final composition (averages over last 10\% of
+         events).  Theory: $X/(X+Y)\approx 0.578$, $Y/X\approx 0.732$.}
+\label{tab:summary_par}
+\begin{tabular}{lrrrrr}
+\toprule
+Scenario & Pools & $n_X$ & $n_Y$ & $X/(X+Y)$ & $Y/X$ \\
+\midrule
+Single pool      &   1  & 595 & 405 & 0.596 & 0.678 \\
+\addlinespace
+$K=10$, $p=0$   & 383  & 649 & 352 & 0.649 & 0.542 \\
+$K=10$, $p=0.5$ & 360  & 642 & 359 & 0.648 & 0.543 \\
+$K=10$, $p=1$   & 367  & 569 & 432 & 0.569 & 0.759 \\
+\addlinespace
+$K=50$,  $p=0$   & 172 & 592 & 409 & 0.598 & 0.673 \\
+$K=50$,  $p=0.5$ & 178 & 594 & 407 & 0.596 & 0.679 \\
+$K=50$,  $p=1$   & 130 & 630 & 371 & 0.633 & 0.581 \\
+\addlinespace
+$K=100$, $p=0$   & 260 & 591 & 410 & 0.588 & 0.700 \\
+$K=100$, $p=0.5$ & 248 & 641 & 360 & 0.641 & 0.560 \\
+$K=100$, $p=1$   & 211 & 587 & 414 & 0.590 & 0.695 \\
+\midrule
+\multicolumn{4}{l}{\emph{Theory (equilibrium)}} & 0.578 & 0.732 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The following points compare the sequential split, parallel split, and
+single-pool scenarios.
+
+\begin{enumerate}
+  \item \textbf{Growth shape.}  The single-pool simulation shows smooth
+        near-exponential growth once the early stochastic phase passes.
+        The sequential split simulation with large $K$ closely mirrors
+        this shape; small $K$ produces a more stepped appearance because
+        the pool queue alternates between fast-growing large pools and
+        slow-starting single-cell pools.  In parallel mode all pools
+        grow simultaneously, so total-count growth is always smooth and
+        exponential.
+
+  \item \textbf{Composition convergence — sequential vs.\ single pool.}
+        In the single pool both types always coexist and the composition
+        drifts gradually toward equilibrium.  In the sequential split
+        scenario with $p = 1$, new pools are repeatedly reset to pure
+        $X$, maintaining an excess of $X$ over the equilibrium value.
+        With $p = 0$ the excess is in $Y$.  Only at $p = 0.5$ (or large
+        $K$) does sequential behaviour closely match the single pool.
+
+  \item \textbf{Composition convergence — parallel nearly mode-independent.}
+        The parallel mode reaches near-equilibrium composition quickly
+        regardless of $p$ and $K$ (Tables~\ref{tab:summary_seq}
+        and~\ref{tab:summary_par}).  Concurrent growth across many pools
+        averages out founder-type biases in real time.
+
+  \item \textbf{Variance of ratios.}  Sequential splitting with small $K$
+        shows substantially higher variance in the ratio trajectories
+        compared with the single pool.  Each pool reset is a bottleneck
+        that amplifies stochastic noise (founder effect).  Parallel mode
+        suppresses this variance through averaging across pools.
+
+  \item \textbf{Y/X transient inversion.}  With $p = 0$ in sequential
+        mode, $Y/X$ can transiently exceed $1$ (more $Y$ than $X$ cells),
+        something that does not occur in the single-pool scenario starting
+        from pure $X$.  This effect is absent in parallel mode because
+        $X$-rich parent pools counterbalance $Y$-seeded child pools at
+        every instant.
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Optimal Seeding Parameters}
+\label{sec:optimal}
+
+\subsection{Unbiased seeding condition}
+
+In sequential mode each new pool is seeded by a single type-$X$ cell with
+probability $p$ or a type-$Y$ cell with probability $1-p$.  Define:
+\begin{align*}
+  f_X(K) &= E\!\left[\frac{X}{X+Y}\;\bigg|\;\text{pool size}=K,\;
+             \text{started from 1 }X\text{ cell}\right], \\
+  f_Y(K) &= E\!\left[\frac{X}{X+Y}\;\bigg|\;\text{pool size}=K,\;
+             \text{started from 1 }Y\text{ cell}\right].
+\end{align*}
+The expected combined $X$ fraction is
+\[
+  \bar{\alpha}(K,p)
+  = p\,f_X(K) + (1-p)\,f_Y(K).
+\]
+Setting $\bar{\alpha}=\alpha_{\mathrm{eq}}$ and solving gives the
+\emph{unbiased seeding probability}:
+\begin{equation}
+  p^*(K)
+  = \frac{\alpha_{\mathrm{eq}} - f_Y(K)}{f_X(K) - f_Y(K)}.
+  \label{eq:pstar}
+\end{equation}
+Both $f_X(K)$ and $f_Y(K)$ are estimated by Monte Carlo Gillespie
+simulation of 2\,000 independent pools per value of $K$.
+
+\subsection{Computed $p^*(K)$ and the bias surface}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig_pstar_K.pdf}
+  \caption{Left: expected X fraction at split time, $f_X(K)$ (blue) and
+           $f_Y(K)$ (red), as a function of $K$.  Both converge toward
+           $\alpha_{\mathrm{eq}}\approx 0.578$ (dashed) as $K\to\infty$.
+           Right: the corresponding unbiased seeding probability $p^*(K)$
+           from \eqref{eq:pstar}.}
+  \label{fig:pstar_K}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{fig_bias_surface.pdf}
+  \caption{Bias $\bar{\alpha}(K,p)-\alpha_{\mathrm{eq}}$ over the full
+           $(K,p)$ grid (log-$K$ axis).  Red indicates excess $X$;
+           blue indicates excess $Y$.  The black curve is $p^*(K)$
+           (zero-bias contour); the yellow dashed line is $p=\alpha_{\mathrm{eq}}$.}
+  \label{fig:bias_surface}
+\end{figure}
+
+Figure~\ref{fig:pstar_K} (right) shows a key result: $p^*(K)$ does
+\emph{not} converge to $\alpha_{\mathrm{eq}}\approx 0.578$; instead it
+lies persistently above 0.60 for all $K$ and is still rising toward
+$\approx 0.70$–$0.75$ at $K=200$.  The reason is an \emph{asymmetry in
+equilibration speed}:
+
+\begin{itemize}
+  \item An $X$-seeded pool starts with self-renewal rate $a=0.5$ and
+        produces $Y$ only slowly ($b=0.1$), so at split time it has an
+        $X$-excess above $\alpha_{\mathrm{eq}}$.
+  \item A $Y$-seeded pool starts with self-renewal rate $d=0.4$ but can
+        produce $X$ only at rate $c=0.05$ (much smaller than $b$), so its
+        $X$-deficit at split time is \emph{larger in magnitude} than the
+        $X$-excess of the $X$-seeded pool.
+\end{itemize}
+
+Formally, using the eigen-decomposition of $A$ (Section~\ref{sec:model}),
+the deviations from equilibrium at split time decay as
+$K^{-\varepsilon/\lambda_1} \approx K^{-0.32}$ in both cases, but with
+unequal prefactors.  The zero-bias condition therefore converges to a
+nontrivial limit $p^*(\infty) > \alpha_{\mathrm{eq}}$.
+
+The bias surface (Figure~\ref{fig:bias_surface}) confirms that using
+$p=\alpha_{\mathrm{eq}}$ (yellow dashed line) still leaves a slight
+$X$-excess for all $K$, while only the $p^*(K)$ curve (black) passes
+through zero bias.
+
+\subsection{Simulation verification at $p^*(K)$}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{fig_optimal_p_sim.pdf}
+  \caption{Sequential splitting: $X/(X+Y)$ trajectory for three choices
+           of $p$ at $K=10$ (left) and $K=50$ (right).  The optimal
+           $p^*(K)$ (dark shade) tracks the theoretical equilibrium
+           most closely.}
+  \label{fig:optimal_p_sim}
+\end{figure}
+
+Figure~\ref{fig:optimal_p_sim} shows that seeding with $p^*(K)$ does
+indeed bring the combined trajectory closest to $\alpha_{\mathrm{eq}}$,
+while $p=0.5$ undershoots (too many $Y$-seeded pools) and
+$p=\alpha_{\mathrm{eq}}$ is intermediate.  The improvement is especially
+visible at small $K$ where the founder effect is strongest.
+
+\subsection{Variance: the $K$-bias trade-off}
+
+For fixed total $N$, the combined-ratio variance scales as
+\[
+  \mathrm{Var}\!\left(\frac{X}{X+Y}\right)
+  \;\approx\;
+  \frac{K}{N}\;\mathrm{Var}\!\left(\frac{X}{X+Y}\;\bigg|\;\text{size}=K\right)
+  \;\propto\;
+  \frac{K^{1-2\varepsilon/\lambda_1}}{N}
+  \;\propto\;
+  \frac{K^{0.354}}{N}.
+\]
+Because the exponent $1-2\varepsilon/\lambda_1 \approx 0.354>0$, the
+variance is \emph{monotonically increasing in $K$} for our parameter
+values.  There is therefore no interior variance-minimising $K$: small
+$K$ always reduces variance (more pools $\Rightarrow$ more averaging),
+at the cost of stronger founder-effect bias.
+
+\paragraph{Practical recommendation.}
+Use $p = p^*(K)$ from \eqref{eq:pstar} to eliminate bias regardless of
+$K$.  Given the monotone variance result, prefer small $K$ if variance is
+the priority, and use $p^*(K)\approx 0.60$–$0.66$.  If equilibration
+fidelity within each pool is the priority (e.g.\ to avoid transient
+inversion of $Y/X$), prefer larger $K$ and note that the bias correction
+is less critical since all pools nearly equilibrate before splitting.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Founder effect and bottlenecks}
+
+The dominant feature of the split simulation — cell-type domination within
+each pool — is a manifestation of the \emph{founder effect}: when a new
+population is established from a single individual, the genetic (here: type)
+composition of the founder disproportionately shapes the descendant
+population.  The strength of the effect is controlled by $K$:
+
+\begin{itemize}
+  \item Small $K$: strong bottlenecks, strong founder effect, high between-pool
+        heterogeneity in composition.
+  \item Large $K$: weak bottlenecks, composition equilibrates within each pool
+        before the next split, between-pool heterogeneity low.
+\end{itemize}
+
+\subsection{Invariance of growth rate}
+
+Because splits only redistribute existing cells (no net creation or
+destruction), the dominant eigenvalue $\lambda_1$ and therefore the
+exponential growth rate of the total population are the same in all
+scenarios.  What changes is how quickly the composition vector $(X, Y)/N$
+approaches the Perron eigenvector $\approx (0.578, 0.422)$.
+
+\subsection{Practical interpretation}
+
+If this model represents, for example, stem-cell passage in a culture dish,
+the splitting threshold $K$ is the passage size and $p$ is the fraction of
+stem cells (type $X$) deliberately maintained during passaging.  The analysis
+shows that:
+\begin{itemize}
+  \item Passaging at a large $K$ is more ``self-correcting'' — the culture
+        naturally drifts toward equilibrium composition.
+  \item Biasing $p$ toward 1 (seeding with $X$) enriches $X$ in subsequent
+        passages but does not prevent $Y$ from accumulating in the long run.
+  \item Biasing $p$ toward 0 can temporarily invert the composition
+        ($Y > X$) but the system eventually returns toward equilibrium as
+        $Y$-seeded pools generate $X$ cells through $Y \to X$ events.
+\end{itemize}
+
+
+\begin{thebibliography}{9}
+
+\bibitem{gillespie1977}
+Gillespie, D.\,T.\ (1977).
+Exact stochastic simulation of coupled chemical reactions.
+\textit{The Journal of Physical Chemistry}, \textbf{81}(25), 2340--2361.
+\url{https://doi.org/10.1021/j100540a008}
+
+\bibitem{kesten1966}
+Kesten, H.\ and Stigum, B.\,P.\ (1966).
+A limit theorem for multidimensional Galton-Watson processes.
+\textit{Annals of Mathematical Statistics}, \textbf{37}(5), 1211--1223.
+\url{https://doi.org/10.1214/aoms/1177699266}
+
+\bibitem{athreya1972}
+Athreya, K.\,B.\ and Ney, P.\,E.\ (1972).
+\textit{Branching Processes}.
+Springer, Berlin.
+\url{https://doi.org/10.1007/978-3-642-65371-1}
+
+\bibitem{gillespie1976}
+Gillespie, D.\,T.\ (1976).
+A general method for numerically simulating the stochastic time evolution
+of coupled chemical reactions.
+\textit{Journal of Computational Physics}, \textbf{22}(4), 403--434.
+\url{https://doi.org/10.1016/0021-9991(76)90041-3}
+
+\end{thebibliography}
+
+\end{document}
