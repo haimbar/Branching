@@ -23,7 +23,8 @@ FIG_DIR    = os.path.join(SCRIPT_DIR, "..", "figures")
 
 sys.path.insert(0, SCRIPT_DIR)
 from SimulationScenario import (simulate_cells, simulate_with_splitting,
-                                 estimate_rates_single, estimate_rates_parallel)
+                                 estimate_rates_single, estimate_rates_parallel,
+                                 estimate_rates_counts_only, estimate_rates_first_event)
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -184,6 +185,50 @@ fig.savefig(fig_path("fig_par_K100.pdf"), bbox_inches="tight")
 plt.close(fig)
 print("Saved figures/fig_par_K100.pdf")
 
+# ── 2b. Parallel splitting: K=20 (for comparison with K=100) ─────────────────
+print("\n── Parallel splitting (K=20) ────────────────────────────────────────────")
+K20 = 20
+all_par20 = {}
+for p in p_vals:
+    res = simulate_with_splitting(a=a, b=b, c=c, d=d,
+                                  nx0=1, ny0=0, N=N, K=K20, p=p,
+                                  mode="parallel", seed=SEED)
+    all_par20[p] = res
+    st = traj_stats(res["traj"])
+    n  = len(res["pools"])
+    print(f"  p={p:.1f}: {n} pools,  X/(X+Y)={st['final_x_frac']:.4f},  Y/X={st['final_y_over_x']:.4f}")
+
+fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex="col")
+fig.suptitle(f"Parallel splitting, $K={K20}$", fontsize=13)
+for col, p in enumerate(p_vals):
+    traj   = all_par20[p]["traj"]
+    nx     = np.array(traj["total_X"], dtype=float)
+    ny     = np.array(traj["total_Y"], dtype=float)
+    total  = nx + ny
+    xfrac  = np.where(total > 0, nx / total, np.nan)
+    yoverx = np.where(nx   > 0, ny / nx,    np.nan)
+    x_ax   = traj["x"]
+
+    ax = axes[0, col]
+    ax.step(x_ax, nx, where="post", color="steelblue", lw=1.8, label="Total X")
+    ax.step(x_ax, ny, where="post", color="tomato",    lw=1.8, label="Total Y")
+    ax.set_title(f"$p = {p}$")
+    ax.set_ylabel("Cell count" if col == 0 else "")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    ax = axes[1, col]
+    ax.step(x_ax, xfrac,  where="post", color="steelblue", lw=1.8, label=r"$X/(X+Y)$")
+    ax.step(x_ax, yoverx, where="post", color="tomato",    lw=1.8, label=r"$Y/X$")
+    ax.axhline(eq_x_frac, ls="--", color="steelblue", alpha=0.4)
+    ax.axhline(ev_ratio,  ls="--", color="tomato",    alpha=0.4)
+    ax.set_xlabel("Time"); ax.set_ylabel("Ratio" if col == 0 else "")
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_par_K20.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("Saved figures/fig_par_K20.pdf")
+
 # ── 3. Theoretical variance curves ───────────────────────────────────────────
 print("\n── Variance theory ──────────────────────────────────────────────────────")
 idx4   = np.searchsorted(t_th, 4.0)
@@ -290,3 +335,103 @@ for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
           f"{sm:>13.4f}  {ss:>11.4f}  {pm:>15.4f}  {ps:>13.4f}")
 
 print("\nAll figures saved to ./figures/")
+
+# ── 6. Missing-data estimation: counts only (Q3) ──────────────────────────────
+print("\n── Counts-only MLE study (single pool) ──────────────────────────────────")
+ests_co = np.empty((M, 4))
+
+for m in range(M):
+    seed_m = 1000 + m
+    t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N, seed=seed_m)
+    e = estimate_rates_counts_only(t_, nx_, ny_)
+    ests_co[m] = [e['a'], e['b'], e['c'], e['d']]
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M} replicates done", flush=True)
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 5))
+fig.suptitle(
+    f"Full-data MLE vs counts-only MLE  ({M} replicates, $N={N}$, single pool)",
+    fontsize=11)
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    bp = ax.boxplot([ests_single[:, j], ests_co[:, j]],
+                    labels=["Full data", "Counts only"],
+                    patch_artist=True, widths=0.5,
+                    medianprops=dict(color="black", lw=2))
+    for patch, col in zip(bp['boxes'], ["steelblue", "darkorange"]):
+        patch.set_facecolor(col); patch.set_alpha(0.6)
+    ax.axhline(true, color="crimson", ls="--", lw=1.8)
+    ax.set_title(f"${pname}$   ({desc})", fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+plt.tight_layout()
+fig.savefig(fig_path("fig_estimation_counts.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("Saved figures/fig_estimation_counts.pdf")
+
+# ── 7. First-event estimation (Q4) ────────────────────────────────────────────
+print("\n── First-event MLE study (K=20, p=0.5) ──────────────────────────────────")
+K_FE = 20
+ests_fe = np.empty((M, 4))
+
+for m in range(M):
+    seed_m = 1000 + m
+    res_ = simulate_with_splitting(**TRUE, nx0=1, ny0=0, N=N, K=K_FE, p=0.5,
+                                   mode="parallel", seed=seed_m)
+    e = estimate_rates_first_event(res_)
+    ests_fe[m] = [e['a'], e['b'], e['c'], e['d']]
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M} replicates done", flush=True)
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 5))
+fig.suptitle(
+    f"Full-data MLE vs first-event MLE  ({M} replicates, $N={N}$, $K={K_FE}$, $p=0.5$)",
+    fontsize=11)
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    bp = ax.boxplot([ests_single[:, j], ests_fe[:, j]],
+                    labels=["Full data", f"First-event\n$K={K_FE}$"],
+                    patch_artist=True, widths=0.5,
+                    medianprops=dict(color="black", lw=2))
+    for patch, col in zip(bp['boxes'], ["steelblue", "seagreen"]):
+        patch.set_facecolor(col); patch.set_alpha(0.6)
+    ax.axhline(true, color="crimson", ls="--", lw=1.8)
+    ax.set_title(f"${pname}$   ({desc})", fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+plt.tight_layout()
+fig.savefig(fig_path("fig_estimation_first_event.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("Saved figures/fig_estimation_first_event.pdf")
+
+# SD vs K curve (Q4)
+K_vals_fe = [2, 5, 10, 20, 50, 100]
+sd_fe_K = {pname: [] for pname in param_names}
+M_K = 100
+for Kk in K_vals_fe:
+    arr = np.empty((M_K, 4))
+    for m in range(M_K):
+        res_ = simulate_with_splitting(**TRUE, nx0=1, ny0=0, N=N, K=Kk, p=0.5,
+                                       mode="parallel", seed=3000 + m)
+        e = estimate_rates_first_event(res_)
+        arr[m] = [e['a'], e['b'], e['c'], e['d']]
+    for j, pname in enumerate(param_names):
+        sd_fe_K[pname].append(float(np.nanstd(arr[:, j])))
+    print(f"  K={Kk} done", flush=True)
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+fig.suptitle(
+    f"First-event MLE: SD vs $K$  ($N={N}$, $p=0.5$, {M_K} replicates each)",
+    fontsize=11)
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    ax.semilogx(K_vals_fe, sd_fe_K[pname], "o-", color="seagreen", lw=2,
+                label="First-event MLE")
+    ax.axhline(ests_single[:, j].std(), ls="--", color="steelblue", lw=1.5,
+               label="Full-data SD")
+    ax.set_xlabel("$K$ (pool size)"); ax.set_ylabel("SD of estimate")
+    ax.set_title(f"${pname}$   ({desc})", fontsize=10)
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    ax.set_xticks(K_vals_fe); ax.set_xticklabels(K_vals_fe)
+plt.tight_layout()
+fig.savefig(fig_path("fig_first_event_vs_K.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("Saved figures/fig_first_event_vs_K.pdf")

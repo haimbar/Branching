@@ -395,6 +395,206 @@ def estimate_rates_parallel(result):
                 Lambda_X=Lambda_X, Lambda_Y=Lambda_Y)
 
 
+def estimate_rates_counts_only(times, nx_trace, ny_trace):
+    """
+    MLE of (a, b, c, d) from count trajectories only (no event labels).
+
+    Division types are not observed; only nx(t) and ny(t) are known at each
+    event time.  The observable at each step is which cell type was produced:
+
+        X-producing event: X->X+X  (rate a·nx)  OR  Y->Y+X  (rate c·ny)
+        Y-producing event: X->X+Y  (rate b·nx)  OR  Y->Y+Y  (rate d·ny)
+
+    Incomplete-data log-likelihood
+    ------------------------------
+    Integrating over the unobserved event labels yields:
+
+        ℓ(a,b,c,d) = Σ_{X-events} log(a·nx + c·ny)
+                   + Σ_{Y-events} log(b·nx + d·ny)
+                   − (a+b)·Λ_X − (c+d)·Λ_Y
+
+    where Λ_X = ∫ nx(t) dt and Λ_Y = ∫ ny(t) dt are computed from the
+    observed trajectory and are sufficient statistics for the exposure terms.
+    This likelihood is maximized directly using L-BFGS-B with analytical
+    gradients.
+
+    Initialisation
+    --------------
+    Starting values are derived from unambiguous events:
+    • When ny = 0 the event type is fully determined → good estimates of a, b.
+    • c and d are initialised from residual counts after subtracting the
+      expected a- and b-event contributions.
+
+    Parameters
+    ----------
+    times, nx_trace, ny_trace : lists
+        Output of simulate_cells() (the events list is NOT used).
+
+    Returns
+    -------
+    dict with keys a, b, c, d (MLEs), Lambda_X, Lambda_Y, converged, nfev.
+    """
+    from scipy.optimize import minimize
+
+    nx_arr = np.asarray(nx_trace, dtype=float)
+    ny_arr = np.asarray(ny_trace, dtype=float)
+    t_arr  = np.asarray(times,    dtype=float)
+
+    dt_arr   = np.diff(t_arr)
+    nx_prev  = nx_arr[:-1]
+    ny_prev  = ny_arr[:-1]
+    Lambda_X = float(np.dot(nx_prev, dt_arr))
+    Lambda_Y = float(np.dot(ny_prev, dt_arr))
+
+    if Lambda_X <= 0 or Lambda_Y <= 0:
+        return dict(a=float('nan'), b=float('nan'),
+                    c=float('nan'), d=float('nan'),
+                    Lambda_X=Lambda_X, Lambda_Y=Lambda_Y,
+                    converged=False, nfev=0)
+
+    dnx = np.diff(nx_arr)
+    dny = np.diff(ny_arr)
+    x_mask = dnx > 0     # X-producing events
+    y_mask = dny > 0     # Y-producing events
+
+    nx_x = nx_prev[x_mask]   # nx just before each X-producing event
+    ny_x = ny_prev[x_mask]   # ny just before each X-producing event
+    nx_y = nx_prev[y_mask]
+    ny_y = ny_prev[y_mask]
+
+    def neg_loglik_and_grad(params):
+        a, b, c, d = params
+        rate_x = a * nx_x + c * ny_x       # > 0 guaranteed by bounds
+        rate_y = b * nx_y + d * ny_y
+        nll = -(np.sum(np.log(rate_x)) + np.sum(np.log(rate_y))
+                - (a + b) * Lambda_X - (c + d) * Lambda_Y)
+        inv_x = 1.0 / rate_x
+        inv_y = 1.0 / rate_y
+        grad = -np.array([
+            np.dot(inv_x, nx_x) - Lambda_X,   # ∂ℓ/∂a
+            np.dot(inv_y, nx_y) - Lambda_X,   # ∂ℓ/∂b
+            np.dot(inv_x, ny_x) - Lambda_Y,   # ∂ℓ/∂c
+            np.dot(inv_y, ny_y) - Lambda_Y,   # ∂ℓ/∂d
+        ])
+        return nll, grad
+
+    # ── Initialisation from unambiguous events ─────────────────────────────────
+    ny0_mask = ny_prev == 0          # ny=0 → event type is fully determined
+    lx_ny0   = float(np.dot(nx_prev[ny0_mask], dt_arr[ny0_mask]))
+
+    if lx_ny0 > 1e-6:
+        a0 = max(float(np.sum(x_mask & ny0_mask)) / lx_ny0, 1e-4)
+        b0 = max(float(np.sum(y_mask & ny0_mask)) / lx_ny0, 1e-4)
+    else:
+        a0, b0 = 0.3, 0.06
+
+    # c and d from residuals (events not explained by a, b alone)
+    n_x_tot = float(x_mask.sum())
+    n_y_tot = float(y_mask.sum())
+    c0 = max(n_x_tot - a0 * Lambda_X, 0.5) / Lambda_Y
+    d0 = max(n_y_tot - b0 * Lambda_X, 0.5) / Lambda_Y
+
+    x0 = np.array([a0, b0, c0, d0])
+
+    result = minimize(neg_loglik_and_grad, x0, jac=True, method='L-BFGS-B',
+                      bounds=[(1e-6, None)] * 4,
+                      options=dict(maxiter=500, ftol=1e-14, gtol=1e-8))
+
+    a_hat, b_hat, c_hat, d_hat = result.x
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                Lambda_X=Lambda_X, Lambda_Y=Lambda_Y,
+                converged=result.success, nfev=result.nfev)
+
+
+def estimate_rates_first_event(result):
+    """
+    MLE of (a, b, c, d) from the first division event of each child pool.
+
+    When a pool is seeded with a single cell the division type is
+    unambiguously observable from the count change:
+
+        X-seeded pool (nx=1, ny=0):
+          first event creates one new X  → type a  (X→X+X)
+          first event creates one new Y  → type b  (X→X+Y)
+
+        Y-seeded pool (nx=0, ny=1):
+          first event creates one new X  → type c  (Y→Y+X)
+          first event creates one new Y  → type d  (Y→Y+Y)
+
+    The time to the first event is Exp(a+b) for X-seeded pools and
+    Exp(c+d) for Y-seeded pools.  The MLEs follow from the standard
+    Poisson-process formula: rate = count / total_exposure.
+
+    Pools that do not have exactly one initial cell (i.e. the root pool
+    and any pool that is not a child of a split) are excluded.
+
+    Parameters
+    ----------
+    result : dict
+        Output of simulate_with_splitting(..., mode="parallel").
+
+    Returns
+    -------
+    dict with keys a, b, c, d (MLEs), n_a, n_b, n_c, n_d (first-event
+    counts), T_X, T_Y (total first-event waiting times), q_X, q_Y
+    (number of X- and Y-seeded child pools used).
+    """
+    # T_stop: global simulation end time (for censoring correction)
+    T_stop = result['traj']['x'][-1]
+
+    n_a = n_b = n_c = n_d = 0
+    T_X = T_Y = 0.0
+    q_X = q_Y = 0
+
+    for pool in result['pools']:
+        # Only single-cell child pools: initial state must be (1,0) or (0,1)
+        nx0, ny0 = pool['nx_trace'][0], pool['ny_trace'][0]
+        if nx0 + ny0 != 1:
+            continue          # root pool or multi-cell seed — skip
+
+        t0 = pool['times'][0]
+
+        # Check whether the first division event fired before the simulation ended
+        has_first_event = (
+            len(pool['events']) >= 2
+            and pool['events'][1] not in ('split->X', 'split->Y', 'initial')
+        )
+
+        if nx0 == 1:          # X-seeded
+            q_X += 1
+            if has_first_event:
+                t_first = pool['times'][1] - t0   # observed waiting time
+                T_X += t_first
+                if pool['events'][1] in ('X->X', 'Y->X'):   # X count ↑ → type a
+                    n_a += 1
+                else:                                         # Y count ↑ → type b
+                    n_b += 1
+            else:
+                # Censored: first event didn't fire; contribute censored exposure
+                T_X += max(T_stop - t0, 0.0)
+
+        else:                 # Y-seeded  (ny0 == 1)
+            q_Y += 1
+            if has_first_event:
+                t_first = pool['times'][1] - t0
+                T_Y += t_first
+                if pool['events'][1] in ('X->X', 'Y->X'):   # X count ↑ → type c
+                    n_c += 1
+                else:                                         # Y count ↑ → type d
+                    n_d += 1
+            else:
+                T_Y += max(T_stop - t0, 0.0)
+
+    a_hat = n_a / T_X if T_X > 0 else float('nan')
+    b_hat = n_b / T_X if T_X > 0 else float('nan')
+    c_hat = n_c / T_Y if T_Y > 0 else float('nan')
+    d_hat = n_d / T_Y if T_Y > 0 else float('nan')
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_a=n_a, n_b=n_b, n_c=n_c, n_d=n_d,
+                T_X=T_X, T_Y=T_Y, q_X=q_X, q_Y=q_Y)
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:

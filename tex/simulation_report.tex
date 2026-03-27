@@ -1,4 +1,4 @@
-\documentclass[11pt]{article}
+\documentclass[12pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath, amssymb}
 \usepackage{graphicx}
@@ -18,8 +18,8 @@
 
 \begin{document}
 \maketitle
-\tableofcontents
-\bigskip
+%\tableofcontents
+%\bigskip
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Model Description}
@@ -227,7 +227,7 @@ Key observations:
 
 
 % ─────────────────────────────────────────────────────────────────────────────
-\section{Parallel Splitting ($K = 100$)}
+\section{Parallel Splitting}
 \label{sec:parallel}
 
 \subsection{Mechanism}
@@ -247,7 +247,7 @@ Note that a split does not change the total cell count; only division events
 do.  Therefore the global exponential growth rate $\lambda_1$ is unaffected
 by $K$ and $p$; what changes is the \emph{composition} trajectory.
 
-\subsection{Results: effect of seeding probability $p$}
+\subsection{Results: $K = 100$ — near-equilibrium regime}
 
 \begin{figure}[H]
   \centering
@@ -270,21 +270,56 @@ close to the theoretical equilibrium $X/(X+Y) \approx 0.578$.
 Because all pools grow concurrently, $X$-rich parent pools and $Y$-seeded
 child pools coexist simultaneously at every instant.  Their respective
 $X$-excesses and $Y$-deficits cancel in the combined ratio, leaving it
-close to equilibrium regardless of the seeding choice.  This is in contrast
-to sequential mode (code retained in \texttt{SimulationScenario.py} but not
-analysed here), where one pool at a time is active and biases in seeding
-accumulate over long stretches.
+close to equilibrium regardless of the seeding choice.
 
 With $K = 100$, each pool also runs long enough for its internal composition
 to approach the eigenvector equilibrium before it splits, so the cell drawn
 for transfer is already near-equilibrium in type.
+
+\subsection{Results: $K = 20$ — founder-effect regime}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_par_K20.pdf}
+  \caption{Parallel-mode split simulation with $K = 20$.  Layout identical
+           to Figure~\ref{fig:par_K100}.  With smaller pools the ratios show
+           stronger sensitivity to $p$ and larger transient fluctuations
+           compared to the $K = 100$ case.}
+  \label{fig:par_K20}
+\end{figure}
+
+Figure~\ref{fig:par_K20} repeats the experiment with $K = 20$, exposing the
+regime in which pools are too small to equilibrate internally before splitting.
+Two differences from the $K = 100$ case stand out.
+
+\begin{itemize}
+  \item \textbf{Higher sensitivity to $p$.}  With $K = 20$, a founder cell
+        of type $Y$ has only 19 subsequent division opportunities before the
+        pool splits.  Given the small cross-production rate $c = 0.05$, this
+        is insufficient for the composition to approach the equilibrium
+        eigenvector; $Y$-rich pools remain $Y$-rich.  The combined ratio
+        therefore depends more strongly on $p$: the three columns of
+        Figure~\ref{fig:par_K20} are visibly more separated than those of
+        Figure~\ref{fig:par_K100}.
+
+  \item \textbf{Larger transient fluctuations.}  With many small pools,
+        each pool's founder type makes a larger fractional contribution to
+        the combined ratio, so stochastic founder variation translates into
+        more visible steps in the ratio trajectories.
+\end{itemize}
+
+The contrast between Figures~\ref{fig:par_K100} and~\ref{fig:par_K20}
+illustrates the role of $K$ as a parameter controlling the trade-off between
+\emph{mixing speed} (larger $K$ allows each pool to equilibrate internally)
+and \emph{pool count} (smaller $K$ creates more pools, potentially improving
+rate estimation as discussed in Section~\ref{sec:estimation}).
 
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Comparison: Single Pool vs Parallel Splitting}
 \label{sec:comparison}
 
-Table~\ref{tab:summary} summarises the two scenarios at $N = 1000$.
+Table~\ref{tab:summary} summarizes the two scenarios at $N = 1000$.
 
 \begin{table}[H]
 \centering
@@ -306,7 +341,24 @@ $K=100$, $p=1.0$  & 211  & 587 & 414 & 0.590 & 0.695 \\
 \end{tabular}
 \end{table}
 
-The following points summarise the key differences.
+\paragraph{Why are there so many pools?}
+A naive estimate would give $N/K = 1000/100 = 10$ pools.  The actual count
+($\sim\!210$--$260$) is far larger because the splitting mechanism creates a
+cascade.  After the first pool grows from $1$ to $K = 100$ cells (requiring
+$K-1 = 99$ divisions), it splits: one cell goes to a new child pool and the
+parent retains $K-1 = 99$ cells.  The parent now needs only \emph{one} more
+division to reach $K$ again and split a second time.  It therefore generates
+a new child pool with approximately every subsequent division, acting as a
+continuous source of single-cell founders.  As the simulation progresses,
+child pools that themselves grow to size $K$ become additional sources,
+amplifying the cascade further.  The result is that the number of pools
+scales as $O(N)$ rather than $O(N/K)$; specifically, the pool count equals
+$1 + (\text{total splits})$, where the total splits depend on how many
+division events happen in pools already at size $K-1$.  With $N = 1000$ and
+$K = 100$ this produces $\sim\!250$ pools, roughly $25\times$ the naive
+estimate.
+
+The following points summarize the key differences.
 
 \begin{enumerate}
   \item \textbf{Growth shape.}  The single-pool simulation shows smooth
@@ -336,8 +388,8 @@ The following points summarise the key differences.
 
   \item \textbf{Robustness to $p$.}  The parallel mode is nearly $p$-independent
         for $K = 100$: the final $X/(X+Y)$ ranges only from 0.588 to 0.641
-        across all three $p$ values (Table~\ref{tab:summary}), which is a
-        much narrower range than would be seen in sequential mode.
+        across all three $p$ values (Table~\ref{tab:summary}).%, which is a
+        %much narrower range than would be seen in sequential mode.
 \end{enumerate}
 
 
@@ -465,7 +517,7 @@ replicate via~\eqref{eq:mle} (with tail correction for the parallel case).
   \label{fig:estimation}
 \end{figure}
 
-Numerical results are summarised in Table~\ref{tab:estimation}.
+Numerical results are summarized in Table~\ref{tab:estimation}.
 
 \begin{table}[H]
 \centering
@@ -486,6 +538,198 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.398 & 0.027 \\
 \end{tabular}
 \end{table}
 
+\subsection{Missing-data estimation: counts only}
+\label{sec:counts_only}
+
+In some experimental settings the division type of each event is not
+observed; only the cell-count trajectories $n_X(t)$ and $n_Y(t)$ are
+available.  At each event step the observable is which cell type was
+produced, but not which parent type caused it:
+
+\begin{itemize}
+  \item \emph{X-producing step} ($n_X \to n_X+1$): event is
+        $X\!\to\!X{+}X$ (rate $a n_X$) or $Y\!\to\!Y{+}X$ (rate $c n_Y$).
+  \item \emph{Y-producing step} ($n_Y \to n_Y+1$): event is
+        $X\!\to\!X{+}Y$ (rate $b n_X$) or $Y\!\to\!Y{+}Y$ (rate $d n_Y$).
+\end{itemize}
+
+The resulting \emph{incomplete-data log-likelihood} is obtained by
+marginalising over the unobserved event labels:
+\begin{equation}
+  \ell_{\mathrm{obs}}(a,b,c,d)
+  = \sum_{\text{X-steps}} \log(a n_X + c n_Y)
+  + \sum_{\text{Y-steps}} \log(b n_X + d n_Y)
+  - (a+b)\Lambda_X - (c+d)\Lambda_Y,
+  \label{eq:ell_obs}
+\end{equation}
+where the sums are over the pre-event state at each step and
+$\Lambda_X, \Lambda_Y$ are the same exposures as before (computed from
+the observed trajectory).  The log-likelihood \eqref{eq:ell_obs} is
+strictly concave and maximised by the system of score equations
+\begin{equation}
+  \sum_{\text{X-steps}} \frac{n_X}{a n_X + c n_Y} = \Lambda_X, \quad
+  \sum_{\text{X-steps}} \frac{n_Y}{a n_X + c n_Y} = \Lambda_Y,
+  \label{eq:score_obs}
+\end{equation}
+and analogously for $(b,d)$ from Y-producing steps.  These are solved by
+L-BFGS-B with analytical gradients; starting values are obtained from the
+unambiguous events (those where $n_Y = 0$, so $a$ and $b$ are fully
+identifiable).
+
+\paragraph{Near non-identifiability.}
+The Fisher information matrix for $(a,c)$ from the incomplete-data
+likelihood has elements
+\[
+  [I_{\mathrm{obs}}]_{ac}
+  \propto \sum_{\text{X-steps}} \frac{n_X \, n_Y}{(a n_X + c n_Y)^2}.
+\]
+When the composition is near the equilibrium eigenvector
+($n_X/n_Y \approx 1.37$), the matrix becomes nearly rank-one: any
+parameter pair $(a',c')$ satisfying $a' n_X + c' n_Y \approx a n_X +
+c n_Y$ (i.e.\ lying on the ``confusion ridge''
+$a' + 1.37\,c' \approx \mathrm{const}$) yields approximately the same
+likelihood.  Because the process spends most of its time near equilibrium,
+the effective information about the individual rates $a$ and $c$ is far
+smaller than in the complete-data case.  The same argument applies to
+$(b,d)$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_estimation_counts.pdf}
+  \caption{Full-data MLE (blue) vs counts-only MLE (orange) over
+           $M = 200$ replicates ($N = 1000$, single pool).
+           Red dashed lines mark the true values.
+           The counts-only MLE is essentially unbiased but its standard
+           deviation is $5$--$18\times$ larger than the full-data MLE
+           due to near non-identifiability near the equilibrium composition.}
+  \label{fig:est_counts}
+\end{figure}
+
+Table~\ref{tab:est_counts} quantifies the precision loss.  For $N=1000$
+the counts-only SD exceeds the full-data SD by a factor of 6 for $a$
+and $d$ and by a factor of 13--18 for $b$ and $c$ (the cross-production
+rates, which are most susceptible to the confusion ridge).  Although the
+estimator is consistent, the near non-identifiability means that very
+large $N$ would be required to achieve practical accuracy.
+
+\begin{table}[H]
+\centering
+\caption{MLE summary: full data vs counts-only ($M=200$, $N=1000$,
+         single pool).}
+\label{tab:est_counts}
+\begin{tabular}{lcrrrr}
+\toprule
+ & & \multicolumn{2}{c}{Full-data MLE} & \multicolumn{2}{c}{Counts-only MLE} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Parameter & True & Mean & SD & Mean & SD \\
+\midrule
+$a$ & 0.500 & 0.499 & 0.020 & 0.401 & 0.121 \\
+$b$ & 0.100 & 0.100 & 0.008 & 0.183 & 0.116 \\
+$c$ & 0.050 & 0.050 & 0.010 & 0.198 & 0.174 \\
+$d$ & 0.400 & 0.401 & 0.027 & 0.296 & 0.166 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The counts-only estimator is useful when no alternatives exist, but
+Section~\ref{sec:first_event} shows that a simple change to the splitting
+protocol can recover near full-data precision even without event labels.
+
+\subsection{First-event estimation from single-cell seeding}
+\label{sec:first_event}
+
+\paragraph{Observation.}
+When a pool is seeded with exactly \emph{one} cell the type of the first
+division is unambiguously determined from the count increment alone:
+\begin{itemize}
+  \item \emph{X-seeded pool} ($n_X=1, n_Y=0$): only events
+        $X\!\to\!X{+}X$ (rate $a$) and $X\!\to\!X{+}Y$ (rate $b$) are
+        possible.  If $n_X$ increases, the event is type $a$; if $n_Y$
+        increases, it is type $b$.
+  \item \emph{Y-seeded pool} ($n_X=0, n_Y=1$): only events
+        $Y\!\to\!Y{+}X$ (rate $c$) and $Y\!\to\!Y{+}Y$ (rate $d$) are
+        possible, identifiable by the same count-change rule.
+\end{itemize}
+The seeding probability $p$ therefore determines which rates are
+estimable: $p=0$ (all Y-seeded) gives information only on $c$ and $d$;
+$p=1$ (all X-seeded) gives only $a$ and $b$.  For all four rates to be
+estimable we need $p \in (0,1)$.
+
+\paragraph{MLE with censoring.}
+The time to the first event in an X-seeded pool is $\mathrm{Exp}(a+b)$,
+and the event is type $a$ with probability $a/(a+b)$.  Not all pools
+fire their first event before the simulation ends at $T_{\mathrm{stop}}$;
+pools created late may be \emph{right-censored} at $T_{\mathrm{stop}} -
+t_0$ (where $t_0$ is the pool-creation time).  The censored MLE is
+\begin{equation}
+  \hat{a} = \frac{n_a^{\mathrm{FE}}}{T_X}, \quad
+  \hat{b} = \frac{n_b^{\mathrm{FE}}}{T_X},
+  \label{eq:fe_mle}
+\end{equation}
+where $n_a^{\mathrm{FE}}$ counts the X-seeded pools whose first event
+was type $a$, and
+\[
+  T_X = \sum_{\substack{i:\,\text{X-seeded},\\ \text{uncensored}}} t_{\mathrm{first},i}
+      + \sum_{\substack{i:\,\text{X-seeded},\\ \text{censored}}} (T_{\mathrm{stop}} - t_{0,i}).
+\]
+Analogous formulae~\eqref{eq:fe_mle} apply to Y-seeded pools for $c$ and
+$d$.  The estimator is consistent and approximately unbiased for any
+choice of $K$ and $p \in (0,1)$.
+
+\paragraph{Simulation results.}
+Figure~\ref{fig:est_fe} and Table~\ref{tab:est_fe} compare the
+first-event MLE (with $K = 20$, $p = 0.5$) against the full-data MLE.
+With $N = 1000$ the first-event estimator is effectively unbiased and
+has SDs $2$--$4\times$ larger than the full-data MLE — a dramatic
+improvement over the counts-only estimator.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_estimation_first_event.pdf}
+  \caption{Full-data MLE (blue) vs first-event MLE (green, $K = 20$,
+           $p = 0.5$) over $M = 200$ replicates ($N = 1000$).  Red dashed
+           lines mark the true values.  The first-event MLE is essentially
+           unbiased and has $2$--$4\times$ the SD of the full-data MLE.}
+  \label{fig:est_fe}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{First-event MLE summary ($M=200$, $N=1000$, $K=20$, $p=0.5$).}
+\label{tab:est_fe}
+\begin{tabular}{lcrrrr}
+\toprule
+ & & \multicolumn{2}{c}{Full-data MLE} & \multicolumn{2}{c}{First-event MLE} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Parameter & True & Mean & SD & Mean & SD \\
+\midrule
+$a$ & 0.500 & 0.499 & 0.020 & 0.500 & 0.064 \\
+$b$ & 0.100 & 0.100 & 0.008 & 0.102 & 0.030 \\
+$c$ & 0.050 & 0.050 & 0.010 & 0.048 & 0.025 \\
+$d$ & 0.400 & 0.401 & 0.027 & 0.407 & 0.067 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Effect of pool size $K$.}
+A smaller $K$ creates more child pools (Section~\ref{sec:comparison}),
+providing more first-event observations and hence smaller estimation
+variance.  Figure~\ref{fig:fe_vs_K} confirms that the SD of the
+first-event estimator decreases monotonically as $K$ decreases, with
+$K = 2$ approaching but not quite reaching full-data precision
+(some information about the relative duration between events is discarded).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_first_event_vs_K.pdf}
+  \caption{Standard deviation of the first-event MLE as a function of pool
+           size $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$).
+           Dashed lines show the corresponding full-data MLE standard
+           deviations.  Smaller $K$ yields more pools and lower estimation
+           variance.}
+  \label{fig:fe_vs_K}
+\end{figure}
+
 \subsection{Conclusions}
 
 \begin{enumerate}
@@ -499,7 +743,7 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.398 & 0.027 \\
         $N$.  The parallel case has marginally larger SD for $a$ and $b$
         (the $X$-cell rates), reflecting the smaller effective exposure
         per pool, but marginally smaller SD for $c$ (the $Y\!\to\!Y{+}X$
-        rate), because averaging across many pools stabilises the count
+        rate), because averaging across many pools stabilizes the count
         of rare events.
 
   \item \textbf{Rates involving $Y$ cells ($c$ and $d$) are estimated with
@@ -520,6 +764,27 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.398 & 0.027 \\
         $N = 20\,000$ (not shown) confirm that both estimators converge to
         the true values as $N$ increases, consistent with the general
         theory of MLE for CTMCs~\cite{athreya1972}.
+
+  \item \textbf{When only counts are observable, near non-identifiability
+        severely inflates variance.}
+        The counts-only MLE (Section~\ref{sec:counts_only}) is consistent
+        but its SD at $N = 1000$ is $6$--$18\times$ larger than the
+        full-data MLE.  The near non-identifiability arises because the
+        process spends most of its time near the equilibrium composition,
+        where $a n_X + c n_Y$ is approximately proportional to $n_X$,
+        making $a$ and $c$ nearly confounded.
+
+  \item \textbf{Single-cell seeding restores near full-data precision.}
+        The first-event MLE (Section~\ref{sec:first_event}) exploits the
+        fact that a pool seeded with one cell has unambiguous event types
+        at its first division.  With $K = 20$ and $p = 0.5$ it achieves
+        SDs only $2$--$4\times$ larger than the full-data MLE (versus
+        $6$--$18\times$ for counts only), with no additional experimental
+        data beyond the count trajectories.  Smaller $K$ further reduces
+        variance by creating more pools (Figure~\ref{fig:fe_vs_K}).
+        The seeding probability $p$ must satisfy $0 < p < 1$; choosing
+        $p = 0$ or $p = 1$ makes two of the four rates unestimable from
+        first events.
 \end{enumerate}
 
 
