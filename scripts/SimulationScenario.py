@@ -269,6 +269,132 @@ def simulate_with_splitting(a=0.5, b=0.1, c=0.05, d=0.4, nx0=1, ny0=0,
     return {'pools': all_pools, 'traj': traj}
 
 
+def estimate_rates_single(times, nx_trace, ny_trace, events):
+    """
+    Maximum-likelihood estimates of (a, b, c, d) from a single-pool
+    Gillespie trajectory.
+
+    The log-likelihood for a CTMC branching process factors as:
+
+        L(a,b,c,d) = n_a*log(a) + n_b*log(b) - (a+b)*Λ_X
+                   + n_c*log(c) + n_d*log(d) - (c+d)*Λ_Y
+
+    where Λ_X = ∫ nx(t) dt and Λ_Y = ∫ ny(t) dt are total cell-time
+    exposures, and n_a, n_b, n_c, n_d are event counts (split events
+    and the initial record are excluded).
+
+    Setting ∂L/∂a = 0, ..., ∂L/∂d = 0 gives the closed-form MLEs:
+
+        â = n_a / Λ_X,   b̂ = n_b / Λ_X
+        ĉ = n_c / Λ_Y,   d̂ = n_d / Λ_Y
+
+    Parameters
+    ----------
+    times, nx_trace, ny_trace, events : lists
+        Output of simulate_cells().
+
+    Returns
+    -------
+    dict with keys a, b, c, d (estimates) and n_a, n_b, n_c, n_d,
+    Lambda_X, Lambda_Y (sufficient statistics).
+    """
+    n_a = n_b = n_c = n_d = 0
+    Lambda_X = Lambda_Y = 0.0
+
+    for i in range(len(times) - 1):
+        dt = times[i + 1] - times[i]
+        Lambda_X += nx_trace[i] * dt
+        Lambda_Y += ny_trace[i] * dt
+        ev = events[i + 1]
+        if   ev == "X->X": n_a += 1
+        elif ev == "X->Y": n_b += 1
+        elif ev == "Y->X": n_c += 1
+        elif ev == "Y->Y": n_d += 1
+        # "initial" is skipped; no split events in single-pool output
+
+    a_hat = n_a / Lambda_X if Lambda_X > 0 else float('nan')
+    b_hat = n_b / Lambda_X if Lambda_X > 0 else float('nan')
+    c_hat = n_c / Lambda_Y if Lambda_Y > 0 else float('nan')
+    d_hat = n_d / Lambda_Y if Lambda_Y > 0 else float('nan')
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_a=n_a, n_b=n_b, n_c=n_c, n_d=n_d,
+                Lambda_X=Lambda_X, Lambda_Y=Lambda_Y)
+
+
+def estimate_rates_parallel(result):
+    """
+    Maximum-likelihood estimates of (a, b, c, d) from a parallel-splitting
+    simulation, aggregated across all pools.
+
+    The same closed-form MLEs apply as in estimate_rates_single():
+
+        â = n_a / Λ_X,  b̂ = n_b / Λ_X,  ĉ = n_c / Λ_Y,  d̂ = n_d / Λ_Y
+
+    where n_a, ..., n_d and Λ_X, Λ_Y are summed over all pools.
+
+    Split events ("split->X" / "split->Y") are excluded from event counts
+    and contribute dt=0 to exposure (they are recorded at the same time
+    as the triggering division event).
+
+    Tail correction: when the simulation terminates (at global time T_stop),
+    all pools except the one that triggered termination have a final interval
+    [t_last, T_stop] that is not yet recorded in their traces.  Omitting it
+    would underestimate Λ and inflate the rate estimates.  This function
+    explicitly adds those tail intervals using the terminal state of each pool.
+
+    Parameters
+    ----------
+    result : dict
+        Output of simulate_with_splitting(..., mode="parallel").
+
+    Returns
+    -------
+    dict with keys a, b, c, d (estimates) and n_a, n_b, n_c, n_d,
+    Lambda_X, Lambda_Y (sufficient statistics aggregated across pools).
+    """
+    n_a = n_b = n_c = n_d = 0
+    Lambda_X = Lambda_Y = 0.0
+
+    # T_stop: global time of the last processed event.  All pools were alive
+    # up to T_stop, but pools that had no event near T_stop are missing the
+    # tail interval [pool['times'][-1], T_stop] in their recorded traces.
+    # We add this tail contribution explicitly to avoid underestimating Λ.
+    T_stop = result['traj']['x'][-1]
+
+    for pool in result['pools']:
+        times    = pool['times']
+        nx_trace = pool['nx_trace']
+        ny_trace = pool['ny_trace']
+        events   = pool['events']
+
+        for i in range(len(times) - 1):
+            dt = times[i + 1] - times[i]
+            Lambda_X += nx_trace[i] * dt
+            Lambda_Y += ny_trace[i] * dt
+            ev = events[i + 1]
+            if   ev == "X->X": n_a += 1
+            elif ev == "X->Y": n_b += 1
+            elif ev == "Y->X": n_c += 1
+            elif ev == "Y->Y": n_d += 1
+            # "initial" and "split->*" events contribute dt=0; counts ignored
+
+        # Tail: exposure from last recorded event to global stopping time
+        dt_tail = T_stop - times[-1]
+        if dt_tail > 0:
+            Lambda_X += nx_trace[-1] * dt_tail
+            Lambda_Y += ny_trace[-1] * dt_tail
+
+    a_hat = n_a / Lambda_X if Lambda_X > 0 else float('nan')
+    b_hat = n_b / Lambda_X if Lambda_X > 0 else float('nan')
+    c_hat = n_c / Lambda_Y if Lambda_Y > 0 else float('nan')
+    d_hat = n_d / Lambda_Y if Lambda_Y > 0 else float('nan')
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_a=n_a, n_b=n_b, n_c=n_c, n_d=n_d,
+                Lambda_X=Lambda_X, Lambda_Y=Lambda_Y)
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:
@@ -394,42 +520,55 @@ def plot_simulation(times, nx_trace, ny_trace):
 
 
 # ── Demo run ──────────────────────────────────────────────────────────────────
+def _print_estimates(label, est, true=None):
+    """Pretty-print MLE estimates with optional comparison to true values."""
+    print(f"\n{'─'*55}")
+    print(f"  {label}")
+    print(f"{'─'*55}")
+    params = [('a', 'X→X+X'), ('b', 'X→X+Y'), ('c', 'Y→Y+X'), ('d', 'Y→Y+Y')]
+    for sym, desc in params:
+        hat = est[sym]
+        n   = est[f'n_{sym}']
+        row = f"  {sym}  ({desc})  n={n:6d}   est={hat:.4f}"
+        if true is not None:
+            row += f"   true={true[sym]:.4f}   err={hat - true[sym]:+.4f}"
+        print(row)
+    print(f"\n  Λ_X = {est['Lambda_X']:.2f}   Λ_Y = {est['Lambda_Y']:.2f}")
+
+
 if __name__ == "__main__":
-    # --- single-pool simulation ---
+    TRUE = dict(a=0.5, b=0.1, c=0.05, d=0.4)
+
+    # ── Single-pool estimation ────────────────────────────────────────────────
+    print("\n══ Single pool (N=1000) ══")
     times, nx_trace, ny_trace, events = simulate_cells(
-        a=0.5, b=0.1, c=0.05, d=0.4,
-        nx0=1, ny0=0, N=100, seed=42
+        **TRUE, nx0=1, ny0=0, N=1000, seed=42
     )
     print(f"Final counts : X={nx_trace[-1]}, Y={ny_trace[-1]}")
     print(f"Total events : {len(times) - 1}")
     print(f"Elapsed time : {times[-1]:.4f}")
+
+    est_single = estimate_rates_single(times, nx_trace, ny_trace, events)
+    _print_estimates("MLE — single pool", est_single, true=TRUE)
+
     save_csv(times, nx_trace, ny_trace, events, path="simulation.csv")
     plot_simulation(times, nx_trace, ny_trace)
 
-    # --- split simulation (sequential) ---
-    print("\n── Sequential splitting ──")
-    pools_seq = simulate_with_splitting(
-        a=0.5, b=0.1, c=0.05, d=0.4,
-        nx0=1, ny0=0, N=1000, K=100, p=1,
-        mode="sequential", seed=42
+    # ── Parallel-splitting estimation (K=100, p=0.5) ─────────────────────────
+    print("\n══ Parallel splitting (K=100, p=0.5, N=1000) ══")
+    pools_par = simulate_with_splitting(
+        **TRUE, nx0=1, ny0=0, N=1000, K=100, p=0.5,
+        mode="parallel", seed=42
     )
-    print(f"Pools created : {len(pools_seq['pools'])}")
-    save_csv_split(pools_seq, path="simulation_split_seq.csv")
-    plot_simulation_split(pools_seq)
-    plt.suptitle("Sequential splitting", fontsize=11)
-    plot_combined_split(pools_seq)
-    plt.suptitle("Sequential splitting — combined", fontsize=11)
+    print(f"Pools created : {len(pools_par['pools'])}")
 
-    # --- split simulation (parallel) ---
-    # print("\n── Parallel splitting ──")
-    # pools_par = simulate_with_splitting(
-    #     a=0.5, b=0.1, c=0.05, d=0.4,
-    #     nx0=1, ny0=0, N=100, K=10, p=0.5,
-    #     mode="parallel", seed=42
-    # )
-    # print(f"Pools created : {len(pools_par)}")
-    # save_csv_split(pools_par, path="simulation_split_par.csv")
-    # plot_simulation_split(pools_par)
-    # plt.suptitle("Parallel splitting", fontsize=11)
+    est_par = estimate_rates_parallel(pools_par)
+    _print_estimates("MLE — parallel splitting", est_par, true=TRUE)
+
+    save_csv_split(pools_par, path="simulation_split_par.csv")
+    plot_simulation_split(pools_par)
+    plt.suptitle("Parallel splitting (K=100, p=0.5)", fontsize=11)
+    plot_combined_split(pools_par)
+    plt.suptitle("Parallel splitting — combined (K=100, p=0.5)", fontsize=11)
 
     plt.show()
