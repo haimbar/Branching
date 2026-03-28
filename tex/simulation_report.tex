@@ -904,11 +904,21 @@ In the single-cell first-event scheme (Section~\ref{sec:first_event}) each
 child pool starts from exactly one founder cell and contributes a single binary
 observation — effectively a $\mathrm{Binomial}(1,\,p)$ trial — to the
 estimation of $p = a/(a+b)$ (for X-seeded pools) or $q = c/(c+d)$ (for
-Y-seeded pools).  The information per pool is therefore low.
+Y-seeded pools).  The information per pool is therefore low: regardless of how
+many cells the pool eventually contains, the observation reduces to a single
+coin flip about $p$.
 
-The \emph{pure-pool} scheme replaces single-cell founders with entire pure
-populations.  When any pool first satisfies $\min(n_X,\,n_Y) \ge K$, it is
-dissolved and replaced by two \emph{pure} pools:
+The \emph{pure-pool} scheme breaks this constraint by running each pure pool
+until the first cross-type event rather than stopping after one trial.  The
+number of same-type events observed before that termination is itself
+informative about $p$, converting the per-pool data structure from a
+$\mathrm{Binomial}(1,p)$ experiment to a
+$\mathrm{NegativeBinomial}(1,\,1-p)$ (equivalently,
+$\mathrm{Geometric}(1-p)$) experiment.
+
+Concretely, this is achieved by replacing single-cell founders with entire
+pure populations.  When any pool first satisfies $\min(n_X,\,n_Y) \ge K$, it
+is dissolved and replaced by two \emph{pure} pools:
 \begin{itemize}
   \item a \textbf{pure-X pool} containing all $n_X$ cells of type $X$ (and
         0 cells of type $Y$), and
@@ -925,15 +935,33 @@ status and may eventually trigger a new split.
 \subsection{Information gain per pool}
 
 In a pure-X pool, successive events are independent Bernoulli trials with
-$P(\text{type }a) = a/(a+b)$, regardless of the current pool size.  The
-pure phase ends at the first type-$b$ event, so the number of events
-observed follows a $\mathrm{Geometric}(b/(a+b))$ distribution with mean
-$(a+b)/b$.  For our parameters,
+$P(\text{type }a) = a/(a+b)$, regardless of the current pool size (the pool
+size cancels from the competing rates $a\,n_X$ and $b\,n_X$).  The pure phase
+ends at the first type-$b$ event, so the number of type-$a$ events
+$k_a \sim \mathrm{Geometric}(b/(a+b))$ with mean $(a+b)/b$.  For our
+parameters,
 \[
   E[\text{events per pure-X pool}] = \frac{a+b}{b} = \frac{0.6}{0.1} = 6,
   \qquad
   E[\text{events per pure-Y pool}] = \frac{c+d}{c} = \frac{0.45}{0.05} = 9.
 \]
+
+The pure-pool MLE benefits from \emph{two} distinct information sources that
+are absent in the single-cell scheme.
+\begin{enumerate}
+  \item \textbf{Count information (Negative Binomial).}  The ratio
+        $k_a / (k_a + 1)$ is a consistent estimate of $p = a/(a+b)$
+        derived entirely from event counts, with no need for timing.
+        This is the sufficient statistic of the
+        $\mathrm{NegBin}(1,\,b/(a+b))$ model.  In the single-cell scheme
+        $k_a \in \{0,1\}$ and this ratio equals the single binary outcome —
+        no richer than one coin flip.
+  \item \textbf{Timing information (Poisson process).}  The integrated
+        exposure $\Lambda_X$ and the total event count $k_a + 1$ jointly
+        estimate the overall rate $a + b$, exactly as in the standard CTMC
+        MLE.
+\end{enumerate}
+The combined MLE $\hat a = n_a/\Lambda_X$ uses both sources simultaneously.
 The Fisher information about $p_X = a/(a+b)$ per pool is therefore
 $\approx (a+b)/b = 6$ times larger than in the single-cell scheme
 (which always contributes exactly one Bernoulli trial).
