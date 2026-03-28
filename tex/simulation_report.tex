@@ -1003,29 +1003,30 @@ $d$ & 0.400 & 0.027 & 0.410 & 0.075 & 0.411 & 0.108 \\
 \subsection{Conclusions}
 
 \begin{itemize}
-  \item \textbf{Per pool, pure-pool is far more efficient.}
-        At $K = 10$ the pure-pool scheme achieves similar or lower SD per
-        \emph{parameter} despite using only 30 pure pools vs.\ 355 single-cell
-        pools — roughly $8\times$ more information per pool, consistent with
-        the theoretical factor $(a+b)/b = 6$.
+  \item \textbf{At fixed $N$, single-cell first-event outperforms pure-pool.}
+        Table~\ref{tab:pure_pool} shows that for $K = 10$ and $N = 1000$,
+        the single-cell first-event MLE has lower SD than the pure-pool MLE
+        for three of four parameters ($a$, $b$, $d$).  The reason is simple:
+        the $\min(X,Y) \ge K$ trigger is harder to satisfy than total
+        cells $= K$, so it fires far less often — generating only $\approx 30$
+        pure pools vs.\ $\approx 355$ single-cell pools.  Fewer pools
+        dominate even though each pure pool is individually more informative.
 
-  \item \textbf{At fixed $N$, fewer pure pools are generated.}
-        The min$(X,Y) \ge K$ trigger requires the mixed pool to grow until
-        both types are abundant.  For $K = 10$ this yields $\approx 30$
-        pure pools vs.\ $\approx 355$ single-cell pools from the standard
-        scheme, so the total SD is comparable or slightly higher.
+  \item \textbf{Each pure pool carries more information per split event.}
+        In a pure-X pool every event is an unambiguous Bernoulli$(a/(a+b))$
+        trial; the pure phase lasts $(a+b)/b \approx 6$ events on average.
+        This is $\approx 6\times$ the information of a single-cell pool
+        (one trial).  If the \emph{number of split events} (e.g.\ experimental
+        passages) is the binding cost rather than total cell count, the
+        pure-pool scheme is preferable: it extracts more information from
+        each split.
 
-  \item \textbf{Pure-pool is preferred when the split count is the
-        experimental cost.}
-        If passages (pool splits) are expensive but cells are cheap, the
-        pure-pool scheme delivers far more statistical information per split.
-        Conversely, if total cell count is fixed, the single-cell scheme
-        generates more independent pools and gives lower overall SD.
-
-  \item \textbf{Large $K$ is inadvisable for pure-pool splitting.}
-        At $K = 50$ only $\approx 7$ pure pools are generated, producing
-        high variance and noticeable finite-sample bias, particularly for
-        the smaller rates $b$ and $c$.
+  \item \textbf{Large $K$ is inadvisable.}
+        At $K = 50$ only $\approx 7$ pure pools are generated at $N = 1000$,
+        giving substantially higher variance and noticeable finite-sample
+        bias (see the $K=50$ block of Table~\ref{tab:pure_pool}).
+        Small $K$ (e.g.\ $K = 5$--$10$) is recommended for the pure-pool
+        scheme.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────
