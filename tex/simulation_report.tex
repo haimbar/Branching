@@ -21,19 +21,6 @@
 %\tableofcontents
 %\bigskip
 
-% TODO (open questions):
-% Q1. For K=2 (pools split after the first division), is the first-event MLE
-%     identical to the full-data MLE?  The K=2 estimate shows slightly higher
-%     SD — explain why.  (Answer added in Section~5.7: the only gap is right-
-%     censoring at T_stop for late-seeded pools.)
-%
-% Q2. Figure~\ref{fig:fe_vs_K} previously showed declining SD past K=50.
-%     Should SD instead increase as K -> N (few pools => few first-event
-%     observations)?  Investigate by extending K up to 900.
-%     (Answer: SD is monotonically increasing in K; smallest at K=2,
-%      largest near K=N.  K=50 was simply the highest among the old range.
-%      Confirmed by extended sweep; see updated Section~5.7 and figure.)
-
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Model Description}
 \label{sec:model}
@@ -906,6 +893,140 @@ The key findings are:
         first events.
 \end{enumerate}
 
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Pure-Pool Splitting: a Multi-Cell First-Event Scheme}
+\label{sec:pure_pool}
+
+\subsection{Motivation}
+
+In the single-cell first-event scheme (Section~\ref{sec:first_event}) each
+child pool starts from exactly one founder cell and contributes a single binary
+observation — effectively a $\mathrm{Binomial}(1,\,p)$ trial — to the
+estimation of $p = a/(a+b)$ (for X-seeded pools) or $q = c/(c+d)$ (for
+Y-seeded pools).  The information per pool is therefore low.
+
+The \emph{pure-pool} scheme replaces single-cell founders with entire pure
+populations.  When any pool first satisfies $\min(n_X,\,n_Y) \ge K$, it is
+dissolved and replaced by two \emph{pure} pools:
+\begin{itemize}
+  \item a \textbf{pure-X pool} containing all $n_X$ cells of type $X$ (and
+        0 cells of type $Y$), and
+  \item a \textbf{pure-Y pool} containing all $n_Y$ cells of type $Y$.
+\end{itemize}
+Each pure pool then evolves independently.  Because a pure-X pool has no
+$Y$ cells, every division event is unambiguously type $a$ ($X\!\to\!X{+}X$)
+or type $b$ ($X\!\to\!X{+}Y$): the event type is fully determined by
+the count change alone, without requiring individual event labels.  The
+\emph{pure phase} lasts until the first cross-type event
+($X\!\to\!X{+}Y$ for a pure-X pool), after which the pool returns to mixed
+status and may eventually trigger a new split.
+
+\subsection{Information gain per pool}
+
+In a pure-X pool, successive events are independent Bernoulli trials with
+$P(\text{type }a) = a/(a+b)$, regardless of the current pool size.  The
+pure phase ends at the first type-$b$ event, so the number of events
+observed follows a $\mathrm{Geometric}(b/(a+b))$ distribution with mean
+$(a+b)/b$.  For our parameters,
+\[
+  E[\text{events per pure-X pool}] = \frac{a+b}{b} = \frac{0.6}{0.1} = 6,
+  \qquad
+  E[\text{events per pure-Y pool}] = \frac{c+d}{c} = \frac{0.45}{0.05} = 9.
+\]
+The Fisher information about $p_X = a/(a+b)$ per pool is therefore
+$\approx (a+b)/b = 6$ times larger than in the single-cell scheme
+(which always contributes exactly one Bernoulli trial).
+
+\subsection{Estimator}
+
+The likelihood in the pure phase factors as in Section~\ref{sec:estimation}.
+For all pure-X pools combined, the sufficient statistics are the total
+type-$a$ event count $n_a^{\mathrm{PP}}$, the total type-$b$ event count
+$n_b^{\mathrm{PP}}$ (one per pool that completes its pure phase), and the
+total X-cell exposure $\Lambda_X^{\mathrm{PP}} = \sum_p \int n_X^{(p)}(t)\,dt$
+over all pure-X phases.  The MLE is identical in form to~\eqref{eq:mle}:
+\begin{equation}
+  \hat{a} = \frac{n_a^{\mathrm{PP}}}{\Lambda_X^{\mathrm{PP}}},\quad
+  \hat{b} = \frac{n_b^{\mathrm{PP}}}{\Lambda_X^{\mathrm{PP}}},\quad
+  \hat{c} = \frac{n_c^{\mathrm{PP}}}{\Lambda_Y^{\mathrm{PP}}},\quad
+  \hat{d} = \frac{n_d^{\mathrm{PP}}}{\Lambda_Y^{\mathrm{PP}}}.
+  \label{eq:mle_pp}
+\end{equation}
+
+\subsection{Simulation study and cost comparison}
+
+Table~\ref{tab:pure_pool} and Figure~\ref{fig:pure_pool_K10} compare the
+pure-pool MLE against the single-cell first-event MLE and the full-data
+MLE for $K = 10$ and $N = 1000$ over $M = 200$ replicates.
+
+\begin{table}[H]
+\centering
+\caption{MLE comparison at $N=1000$, $M=200$ replicates.
+         ``FE'' = single-cell first-event ($p=0.5$);
+         ``PP'' = pure-pool.  The mean number of pure pools generated
+         is 30 (FE: 355 single-cell pools) for $K=10$,
+         and 7 (FE: 170) for $K=50$.}
+\label{tab:pure_pool}
+\begin{tabular}{lcrrrrrr}
+\toprule
+ & & & \multicolumn{2}{c}{First-event ($K$)} &
+         \multicolumn{2}{c}{Pure-pool ($K$)} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Param & True & Full-data SD & Mean & SD & Mean & SD \\
+\midrule
+\multicolumn{7}{l}{\emph{$K = 10$}} \\
+$a$ & 0.500 & 0.020 & 0.511 & 0.053 & 0.516 & 0.063 \\
+$b$ & 0.100 & 0.008 & 0.103 & 0.022 & 0.108 & 0.027 \\
+$c$ & 0.050 & 0.010 & 0.050 & 0.020 & 0.057 & 0.020 \\
+$d$ & 0.400 & 0.027 & 0.401 & 0.057 & 0.428 & 0.052 \\
+\addlinespace
+\multicolumn{7}{l}{\emph{$K = 50$}} \\
+$a$ & 0.500 & 0.020 & 0.505 & 0.069 & 0.520 & 0.141 \\
+$b$ & 0.100 & 0.008 & 0.102 & 0.030 & 0.142 & 0.116 \\
+$c$ & 0.050 & 0.010 & 0.050 & 0.025 & 0.080 & 0.081 \\
+$d$ & 0.400 & 0.027 & 0.410 & 0.075 & 0.411 & 0.108 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_pure_pool_K10.pdf}
+  \caption{MLE comparison at $K = 10$, $N = 1000$, $M = 200$ replicates.
+           Blue: full-data MLE (benchmark).  Green: single-cell first-event
+           MLE ($K=10$, $p=0.5$, 355 single-cell pools).  Orange: pure-pool
+           MLE ($K=10$, 30 pure pools).  Red dashed lines: true values.}
+  \label{fig:pure_pool_K10}
+\end{figure}
+
+\subsection{Conclusions}
+
+\begin{itemize}
+  \item \textbf{Per pool, pure-pool is far more efficient.}
+        At $K = 10$ the pure-pool scheme achieves similar or lower SD per
+        \emph{parameter} despite using only 30 pure pools vs.\ 355 single-cell
+        pools — roughly $8\times$ more information per pool, consistent with
+        the theoretical factor $(a+b)/b = 6$.
+
+  \item \textbf{At fixed $N$, fewer pure pools are generated.}
+        The min$(X,Y) \ge K$ trigger requires the mixed pool to grow until
+        both types are abundant.  For $K = 10$ this yields $\approx 30$
+        pure pools vs.\ $\approx 355$ single-cell pools from the standard
+        scheme, so the total SD is comparable or slightly higher.
+
+  \item \textbf{Pure-pool is preferred when the split count is the
+        experimental cost.}
+        If passages (pool splits) are expensive but cells are cheap, the
+        pure-pool scheme delivers far more statistical information per split.
+        Conversely, if total cell count is fixed, the single-cell scheme
+        generates more independent pools and gives lower overall SD.
+
+  \item \textbf{Large $K$ is inadvisable for pure-pool splitting.}
+        At $K = 50$ only $\approx 7$ pure pools are generated, producing
+        high variance and noticeable finite-sample bias, particularly for
+        the smaller rates $b$ and $c$.
+\end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Discussion}

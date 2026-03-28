@@ -24,7 +24,8 @@ FIG_DIR    = os.path.join(SCRIPT_DIR, "..", "figures")
 sys.path.insert(0, SCRIPT_DIR)
 from SimulationScenario import (simulate_cells, simulate_with_splitting,
                                  estimate_rates_single, estimate_rates_parallel,
-                                 estimate_rates_counts_only, estimate_rates_first_event)
+                                 estimate_rates_counts_only, estimate_rates_first_event,
+                                 simulate_pure_split, estimate_rates_pure_phase)
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -435,3 +436,72 @@ plt.tight_layout()
 fig.savefig(fig_path("fig_first_event_vs_K.pdf"), bbox_inches="tight")
 plt.close(fig)
 print("Saved figures/fig_first_event_vs_K.pdf")
+
+# ── 8. Pure-pool splitting study ───────────────────────────────────────────────
+print("\n── Pure-pool splitting study ─────────────────────────────────────────────")
+# Compare three estimators for K=10 and K=50:
+#   (a) single-cell first-event MLE (simulate_with_splitting)
+#   (b) pure-pool phase MLE (simulate_pure_split)
+#   (c) full-data MLE (benchmark, from ests_single already computed above)
+
+K_vals_pure = [10, 50]
+M_pure = 200
+
+for K_pure in K_vals_pure:
+    ests_fe_K   = np.empty((M_pure, 4))
+    ests_pp_K   = np.empty((M_pure, 4))
+    pools_fe_K  = []
+    pools_pp_K  = []
+
+    for m in range(M_pure):
+        s = 5000 + m
+        # First-event
+        res_fe = simulate_with_splitting(**TRUE, nx0=1, ny0=0, N=N,
+                                         K=K_pure, p=0.5, mode="parallel", seed=s)
+        e_fe = estimate_rates_first_event(res_fe)
+        ests_fe_K[m]  = [e_fe['a'], e_fe['b'], e_fe['c'], e_fe['d']]
+        pools_fe_K.append(e_fe['q_X'] + e_fe['q_Y'])
+        # Pure-pool
+        res_pp = simulate_pure_split(**TRUE, nx0=1, ny0=0, N=N, K=K_pure, seed=s)
+        e_pp = estimate_rates_pure_phase(res_pp)
+        ests_pp_K[m]  = [e_pp['a'], e_pp['b'], e_pp['c'], e_pp['d']]
+        pools_pp_K.append(e_pp['n_pure_X'] + e_pp['n_pure_Y'])
+
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M_pure} done (K={K_pure})", flush=True)
+
+    print(f"\n  K={K_pure}  (mean pools: FE={np.mean(pools_fe_K):.0f}, "
+          f"PP={np.mean(pools_pp_K):.0f})")
+    print(f"  {'Param':>5}  {'True':>6}  "
+          f"{'FE mean':>8}  {'FE SD':>7}  {'PP mean':>8}  {'PP SD':>7}")
+    print("  " + "-" * 52)
+    for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+        print(f"  {pname:>5}  {true:>6.4f}  "
+              f"{ests_fe_K[:,j].mean():>8.4f}  {ests_fe_K[:,j].std():>7.4f}  "
+              f"{ests_pp_K[:,j].mean():>8.4f}  {ests_pp_K[:,j].std():>7.4f}")
+
+    # Box-plot comparison: full-data vs first-event vs pure-pool
+    fig, axes = plt.subplots(1, 4, figsize=(14, 5))
+    fig.suptitle(
+        f"MLE comparison  ($K={K_pure}$, $N={N}$, {M_pure} replicates)",
+        fontsize=11)
+    for j, (pname, desc, true) in enumerate(
+            zip(param_names, descriptions, TRUE_vals)):
+        ax = axes[j]
+        bp = ax.boxplot(
+            [ests_single[:, j], ests_fe_K[:, j], ests_pp_K[:, j]],
+            tick_labels=["Full\ndata", f"First-event\n$K={K_pure}$",
+                         f"Pure-pool\n$K={K_pure}$"],
+            patch_artist=True, widths=0.5,
+            medianprops=dict(color="black", lw=2))
+        for patch, col in zip(bp['boxes'],
+                               ["steelblue", "seagreen", "darkorange"]):
+            patch.set_facecolor(col); patch.set_alpha(0.6)
+        ax.axhline(true, color="crimson", ls="--", lw=1.8)
+        ax.set_title(f"${pname}$   ({desc})", fontsize=10)
+        ax.grid(True, alpha=0.3, axis="y")
+    plt.tight_layout()
+    fname = f"fig_pure_pool_K{K_pure}.pdf"
+    fig.savefig(fig_path(fname), bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved figures/{fname}")

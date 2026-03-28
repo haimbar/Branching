@@ -595,6 +595,198 @@ def estimate_rates_first_event(result):
                 T_X=T_X, T_Y=T_Y, q_X=q_X, q_Y=q_Y)
 
 
+# ── Pure-pool splitting ────────────────────────────────────────────────────────
+
+def simulate_pure_split(a, b, c, d, nx0=1, ny0=0, N=1000, K=10, seed=None):
+    """
+    Parallel simulation with the pure-pool splitting rule.
+
+    Splitting trigger
+    -----------------
+    Any pool in which min(nx, ny) >= K is dissolved and replaced by two
+    *pure* pools:
+        - Pure-X pool: nx cells of type X, 0 Y cells
+        - Pure-Y pool: 0 X cells, ny cells of type Y
+
+    Each pure pool then evolves independently.  A pure pool whose event-0
+    label is 'split->X' starts with only X cells; a 'split->Y' pool starts
+    with only Y cells.  After losing purity (first cross-type division), the
+    pool continues to evolve and may eventually be split again if min(nx,ny)
+    reaches K once more.
+
+    Parameters
+    ----------
+    a, b, c, d : float
+        Division rates (same as simulate_cells).
+    nx0, ny0 : int
+        Initial cell counts.
+    N : int
+        Simulation stops when total cells across all pools >= N.
+    K : int
+        Pure-pool split threshold: split when min(nx, ny) >= K.
+    seed : int or None
+        RNG seed.
+
+    Returns
+    -------
+    dict with keys:
+        'pools' : list of pool dicts (active + dissolved).
+                  Each pool dict has the usual keys (id, parent, times,
+                  nx_trace, ny_trace, events) plus no extra fields.
+                  Dissolved pools have events[-1] starting with 'split->'.
+        'traj'  : aggregate trajectory dict (x, total_X, total_Y).
+    """
+    import heapq
+    rng = np.random.default_rng(seed)
+
+    pools = []
+    dissolved = set()   # indices of dissolved pool objects
+
+    def add_pool(t0, nx, ny, parent_id, init_ev='initial'):
+        idx = len(pools)
+        pools.append(dict(id=idx, parent=parent_id,
+                          times=[t0], nx_trace=[nx], ny_trace=[ny],
+                          events=[init_ev]))
+        return idx
+
+    root = add_pool(0.0, nx0, ny0, parent_id=None)
+
+    total_X = nx0
+    total_Y = ny0
+    traj = dict(x=[0.0], total_X=[nx0], total_Y=[ny0])
+
+    def sched(t, nx, ny):
+        rate = (a + b) * nx + (c + d) * ny
+        return t + rng.exponential(1.0 / rate) if rate > 0 else float('inf')
+
+    heap = [(sched(0.0, nx0, ny0), root)]
+
+    while total_X + total_Y < N and heap:
+        t_evt, pidx = heapq.heappop(heap)
+        if pidx in dissolved or t_evt == float('inf'):
+            continue
+
+        pool = pools[pidx]
+        nx = pool['nx_trace'][-1]
+        ny = pool['ny_trace'][-1]
+
+        # Fire a Gillespie event
+        ra, rb, rc, rd = a * nx, b * nx, c * ny, d * ny
+        r = rng.random() * (ra + rb + rc + rd)
+        if r < ra:
+            ev = 'X->X'; nx += 1; total_X += 1
+        elif r < ra + rb:
+            ev = 'X->Y'; ny += 1; total_Y += 1
+        elif r < ra + rb + rc:
+            ev = 'Y->X'; nx += 1; total_X += 1
+        else:
+            ev = 'Y->Y'; ny += 1; total_Y += 1
+
+        pool['times'].append(t_evt)
+        pool['nx_trace'].append(nx)
+        pool['ny_trace'].append(ny)
+        pool['events'].append(ev)
+
+        traj['x'].append(t_evt)
+        traj['total_X'].append(total_X)
+        traj['total_Y'].append(total_Y)
+
+        # Pure-pool split: dissolve and replace with two pure pools
+        if nx > 0 and ny > 0 and min(nx, ny) >= K:
+            dissolved.add(pidx)
+            px = add_pool(t_evt, nx, 0, parent_id=pool['id'], init_ev='split->X')
+            py = add_pool(t_evt, 0, ny, parent_id=pool['id'], init_ev='split->Y')
+            heapq.heappush(heap, (sched(t_evt, nx, 0), px))
+            heapq.heappush(heap, (sched(t_evt, 0, ny), py))
+        else:
+            heapq.heappush(heap, (sched(t_evt, nx, ny), pidx))
+
+    return dict(pools=pools, traj=traj)
+
+
+def estimate_rates_pure_phase(result):
+    """
+    MLE of a, b, c, d from the pure phase of pure-pool splits.
+
+    Pure phase
+    ----------
+    A pool whose first event label is 'split->X' starts as a pure X-pool
+    (ny = 0).  Its *pure phase* spans all events up to and including the
+    first 'X->Y' event (which introduces the first Y cell).  All events in
+    the pure phase are unambiguously type a ('X->X') or the terminal type b
+    ('X->Y'), providing independent Bernoulli(a/(a+b)) observations.
+
+    Similarly, a 'split->Y' pool's pure phase spans events up to and
+    including the first 'Y->X' event.
+
+    The MLE is the same Poisson-process formula as eq. (2) of the report,
+    but restricted to pure-phase exposure and event counts:
+
+        a_hat = n_a / Lambda_X,   b_hat = n_b / Lambda_X
+        c_hat = n_c / Lambda_Y,   d_hat = n_d / Lambda_Y
+
+    where Lambda_X (Lambda_Y) is the total X (Y) cell-time exposure
+    accumulated during all pure-X (pure-Y) phases.
+
+    Parameters
+    ----------
+    result : dict
+        Output of simulate_pure_split().
+
+    Returns
+    -------
+    dict with keys a, b, c, d (MLEs), n_a, n_b, n_c, n_d (event counts),
+    Lambda_X, Lambda_Y (exposures), n_pure_X, n_pure_Y (pool counts).
+    """
+    n_a = n_b = n_c = n_d = 0
+    Lambda_X = Lambda_Y = 0.0
+    n_pure_X = n_pure_Y = 0
+
+    for pool in result['pools']:
+        ev0 = pool['events'][0]
+        if ev0 not in ('split->X', 'split->Y'):
+            continue    # skip initial mixed pools
+
+        times    = pool['times']
+        nx_trace = pool['nx_trace']
+        ny_trace = pool['ny_trace']
+        events   = pool['events']
+
+        if ev0 == 'split->X':
+            n_pure_X += 1
+            for i in range(len(times) - 1):
+                dt = times[i + 1] - times[i]
+                Lambda_X += nx_trace[i] * dt
+                ev = events[i + 1]
+                if ev == 'X->X':
+                    n_a += 1
+                elif ev == 'X->Y':
+                    n_b += 1
+                    break           # pure phase ends
+
+        else:   # split->Y
+            n_pure_Y += 1
+            for i in range(len(times) - 1):
+                dt = times[i + 1] - times[i]
+                Lambda_Y += ny_trace[i] * dt
+                ev = events[i + 1]
+                if ev == 'Y->Y':
+                    n_d += 1
+                elif ev == 'Y->X':
+                    n_c += 1
+                    break           # pure phase ends
+
+    a_hat = n_a / Lambda_X if Lambda_X > 0 else float('nan')
+    b_hat = n_b / Lambda_X if Lambda_X > 0 else float('nan')
+    c_hat = n_c / Lambda_Y if Lambda_Y > 0 else float('nan')
+    d_hat = n_d / Lambda_Y if Lambda_Y > 0 else float('nan')
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_a=n_a, n_b=n_b, n_c=n_c, n_d=n_d,
+                Lambda_X=Lambda_X, Lambda_Y=Lambda_Y,
+                n_pure_X=n_pure_X, n_pure_Y=n_pure_Y)
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:
