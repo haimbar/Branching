@@ -583,3 +583,66 @@ plt.tight_layout()
 fig.savefig(fig_path("fig_trajectory_ols.pdf"), bbox_inches="tight")
 plt.close(fig)
 print("  Saved figures/fig_trajectory_ols.pdf")
+
+# ── 9b. M-sweep: fix P=10, vary number of checkpoints ────────────────────────
+print("\n── Trajectory OLS: M-sweep (P=10) ──────────────────────────────────────")
+
+P_fixed = 10
+M_vals  = [5, 10, 20, 50]
+
+ests_msweep = {Mv: np.empty((M_traj, 4)) for Mv in M_vals}
+
+for m in range(M_traj):
+    base_seed = 9000 + m * P_fixed
+    # Simulate P_fixed pools once; extract different snapshot densities
+    trajectories = []
+    for p_idx in range(P_fixed):
+        t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N,
+                                         seed=base_seed + p_idx)
+        trajectories.append((t_, nx_, ny_))
+
+    for Mv in M_vals:
+        snap_list = [extract_count_snapshots(t_, nx_, ny_, M=Mv)
+                     for t_, nx_, ny_ in trajectories]
+        e = estimate_rates_trajectory_ols(snap_list)
+        ests_msweep[Mv][m] = [e['a'], e['b'], e['c'], e['d']]
+
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M_traj} replicates done", flush=True)
+
+print(f"\n  P={P_fixed} fixed, varying M (checkpoints per pool):")
+print(f"\n  {'':>5}  {'True':>6}  ", end="")
+print("  ".join(f"{'M='+str(Mv)+' mean':>10}  {'SD':>7}" for Mv in M_vals))
+print("  " + "-" * (14 + 20 * len(M_vals)))
+for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+    row = f"  {pname:>5}  {true:>6.4f}  "
+    for Mv in M_vals:
+        row += f"  {ests_msweep[Mv][:, j].mean():>10.4f}  {ests_msweep[Mv][:, j].std():>7.4f}"
+    print(row)
+
+# Box-plot: full-data, first-event K=10, traj P=10 with M=5/10/20/50
+fig, axes = plt.subplots(1, 4, figsize=(16, 5))
+fig.suptitle(
+    f"Trajectory OLS checkpoint density ($P={P_fixed}$, $N={N}$, "
+    f"{M_traj} replicates)",
+    fontsize=11)
+
+colors_m = ["#c7b8ea", "#9370db", "#5b2c8d", "#2d0057"]  # light → dark purple
+
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    data   = [ests_single[:, j], _fe[:, j]] + [ests_msweep[Mv][:, j] for Mv in M_vals]
+    labels = ["Full\ndata", "First-event\n$K=10$"] + [f"Traj\n$M={Mv}$" for Mv in M_vals]
+    bp = ax.boxplot(data, tick_labels=labels, patch_artist=True,
+                    widths=0.5, medianprops=dict(color="black", lw=2))
+    box_colors = ["steelblue", "seagreen"] + colors_m
+    for patch, col in zip(bp['boxes'], box_colors):
+        patch.set_facecolor(col); patch.set_alpha(0.7)
+    ax.axhline(true, color="crimson", ls="--", lw=1.8)
+    ax.set_title(f"${pname}$   ({desc})", fontsize=9)
+    ax.grid(True, alpha=0.3, axis="y")
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_trajectory_m_sweep.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_trajectory_m_sweep.pdf")
