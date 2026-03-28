@@ -26,7 +26,8 @@ from SimulationScenario import (simulate_cells, simulate_with_splitting,
                                  estimate_rates_single, estimate_rates_parallel,
                                  estimate_rates_counts_only, estimate_rates_first_event,
                                  simulate_pure_split, estimate_rates_pure_phase,
-                                 extract_count_snapshots, estimate_rates_trajectory_ols)
+                                 extract_count_snapshots, estimate_rates_trajectory_ols,
+                                 estimate_rates_trajectory_qrem)
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -646,3 +647,93 @@ plt.tight_layout()
 fig.savefig(fig_path("fig_trajectory_m_sweep.pdf"), bbox_inches="tight")
 plt.close(fig)
 print("  Saved figures/fig_trajectory_m_sweep.pdf")
+
+# ── 9c. Export WLS input data for M=20, P=10 (200 replicates) ────────────────
+print("\n── Exporting WLS snapshot data (M=20, P=10) ─────────────────────────────")
+
+import csv
+
+DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+csv_path = os.path.join(DATA_DIR, "wls_snapshots_M20_P10.csv")
+
+M_export  = 20
+P_export  = 10
+
+with open(csv_path, "w", newline="") as fh:
+    writer = csv.writer(fh)
+    writer.writerow(["replicate", "pool", "snapshot", "t", "nx", "ny"])
+    for m in range(M_traj):
+        base_seed = 9000 + m * P_fixed   # same seeds as M-sweep section
+        for p_idx in range(P_export):
+            t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N,
+                                             seed=base_seed + p_idx)
+            snaps = extract_count_snapshots(t_, nx_, ny_, M=M_export)
+            for s_idx, (ts, nxs, nys) in enumerate(snaps):
+                writer.writerow([m, p_idx, s_idx, f"{ts:.6f}", nxs, nys])
+        if (m + 1) % 50 == 0:
+            print(f"  {m+1}/{M_traj} replicates exported", flush=True)
+
+print(f"  Saved data/wls_snapshots_M20_P10.csv  "
+      f"({M_traj} replicates × {P_export} pools × {M_export+1} snapshots = "
+      f"{M_traj * P_export * (M_export + 1)} rows)")
+
+# ── 9d. QREM vs WLS comparison (M=20, P=10, 200 replicates) ──────────────────
+print("\n── QREM vs WLS comparison (M=20, P=10) ─────────────────────────────────")
+
+M_cmp  = 20
+P_cmp  = 10
+
+ests_wls_cmp  = np.empty((M_traj, 4))
+ests_qrem_cmp = np.empty((M_traj, 4))
+
+for m in range(M_traj):
+    base_seed = 9000 + m * P_fixed   # same seeds as M-sweep / export sections
+    snap_list = []
+    for p_idx in range(P_cmp):
+        t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N,
+                                         seed=base_seed + p_idx)
+        snap_list.append(extract_count_snapshots(t_, nx_, ny_, M=M_cmp))
+    e_wls  = estimate_rates_trajectory_ols(snap_list)
+    e_qrem = estimate_rates_trajectory_qrem(snap_list)
+    ests_wls_cmp[m]  = [e_wls['a'],  e_wls['b'],  e_wls['c'],  e_wls['d']]
+    ests_qrem_cmp[m] = [e_qrem['a'], e_qrem['b'], e_qrem['c'], e_qrem['d']]
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M_traj} replicates done", flush=True)
+
+# Summary table
+print(f"\n  M={M_cmp}, P={P_cmp}  —  Bias (SD)  [true: a=0.5, b=0.1, c=0.05, d=0.4]")
+print(f"  {'':8s}  {'a':>14s}  {'b':>14s}  {'c':>14s}  {'d':>14s}")
+print("  " + "-" * 65)
+for label, ests in [("WLS", ests_wls_cmp), ("QREM", ests_qrem_cmp)]:
+    row = f"  {label:8s}"
+    for j, true in enumerate(TRUE_vals):
+        bias = ests[:, j].mean() - true
+        sd   = ests[:, j].std()
+        row += f"  {bias:+.4f} ({sd:.4f})"
+    print(row)
+
+# Box-plot comparison
+fig, axes = plt.subplots(1, 4, figsize=(16, 5))
+fig.suptitle(
+    f"WLS vs QREM trajectory estimators ($M={M_cmp}$, $P={P_cmp}$, "
+    f"{M_traj} replicates)",
+    fontsize=11)
+
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    bp = ax.boxplot(
+        [ests_wls_cmp[:, j], ests_qrem_cmp[:, j]],
+        tick_labels=["WLS\n(NNLS)", "QREM\n(median)"],
+        patch_artist=True, widths=0.5,
+        medianprops=dict(color="black", lw=2))
+    for patch, col in zip(bp['boxes'], ["steelblue", "darkorange"]):
+        patch.set_facecolor(col); patch.set_alpha(0.7)
+    ax.axhline(true, color="crimson", ls="--", lw=1.8, label="true")
+    ax.set_title(f"${pname}$   ({desc})", fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_wls_vs_qrem.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_wls_vs_qrem.pdf")

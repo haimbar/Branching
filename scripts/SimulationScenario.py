@@ -895,6 +895,121 @@ def estimate_rates_trajectory_ols(snapshots_list):
                 n_pools=len(snapshots_list), n_intervals=n_intervals)
 
 
+def estimate_rates_trajectory_qrem(snapshots_list, qn=0.5,
+                                   maxit=1000, tol=1e-3, max_inv_lambda=300):
+    """
+    Quantile-regression (QREM) estimate of (a, b, c, d) from count-only
+    trajectory snapshots.
+
+    Uses the same scaled design matrix as estimate_rates_trajectory_ols
+    (rows weighted by sqrt(Δt)) but replaces NNLS with the QREM EM/IRLS
+    algorithm (Farcomeni 2012 via the QREM R package).
+
+    The M-step minimises a weighted least-squares problem with weights
+        w_i = invLambda_i  (EM weight, clipped at max_inv_lambda)
+    where invLambda_i = min(1/|u_i|, max_inv_lambda) and u_i is the
+    current residual.  For qn=0.5 the response shift term vanishes, so
+    the algorithm converges to the L1 (median) solution on the
+    sqrt(Δt)-pre-scaled system.
+
+    No non-negativity constraint is imposed (matching QREM behaviour);
+    estimates are returned as-is.
+
+    Parameters
+    ----------
+    snapshots_list : list of lists
+        Each element is a list of (t, nx, ny) tuples from one pool.
+    qn : float
+        Target quantile (default 0.5 = median regression).
+    maxit : int
+        Maximum EM iterations.
+    tol : float
+        Convergence threshold on absolute log-likelihood change.
+    max_inv_lambda : float
+        Cap on IRLS weights (prevents instability near zero residuals).
+
+    Returns
+    -------
+    dict with keys a, b, c, d (estimates), n_pools, n_intervals, iters_X, iters_Y.
+    """
+    AX_rows, bX_rows = [], []
+    AY_rows, bY_rows = [], []
+    n_intervals = 0
+
+    for snaps in snapshots_list:
+        for i in range(len(snaps) - 1):
+            t0, nx0, ny0 = snaps[i]
+            t1, nx1, ny1 = snaps[i + 1]
+            dt = t1 - t0
+            if dt <= 0:
+                continue
+            nx_mid = (nx0 + nx1) / 2.0
+            ny_mid = (ny0 + ny1) / 2.0
+            w = np.sqrt(dt)
+            AX_rows.append([nx_mid * w, ny_mid * w])
+            bX_rows.append((nx1 - nx0) / w)
+            AY_rows.append([nx_mid * w, ny_mid * w])
+            bY_rows.append((ny1 - ny0) / w)
+            n_intervals += 1
+
+    AX = np.array(AX_rows)
+    bX = np.array(bX_rows)
+    AY = np.array(AY_rows)
+    bY = np.array(bY_rows)
+
+    def _qrem_irls(A, y, qn, maxit, tol, cap):
+        """QREM IRLS for a single linear system A @ beta = y (no intercept)."""
+        # Initialise with OLS
+        beta, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+        u = y - A @ beta
+        inv_lam = np.minimum(1.0 / np.abs(u).clip(1e-12), cap)
+
+        loglik_old = np.inf
+        shift = (1.0 - 2.0 * qn)   # = 0 for median
+        n = len(y)
+        it = 0
+        err = tol + 1.0
+
+        while err > tol and it < maxit:
+            it += 1
+            w      = inv_lam                       # EM weights
+            y_sh   = y - shift / inv_lam           # shifted response
+            # Weighted normal equations: (A'WA) beta = A'W y_sh
+            AtW    = A.T * w                       # shape (p, n)
+            AtWA   = AtW @ A                       # (p, p)
+            AtWy   = AtW @ y_sh                    # (p,)
+            try:
+                beta = np.linalg.solve(AtWA, AtWy)
+            except np.linalg.LinAlgError:
+                beta, _, _, _ = np.linalg.lstsq(AtWA, AtWy, rcond=None)
+            u      = y - A @ beta
+            inv_lam = np.minimum(1.0 / np.abs(u).clip(1e-12), cap)
+
+            # Log-likelihood under ALD (same formula as QREM R package)
+            resid_sh = y_sh - A @ beta
+            wRSS = np.sum(w * resid_sh ** 2)
+            if wRSS > 0:
+                loglik_new = 0.5 * (np.sum(np.log(w)) -
+                                    n * (np.log(2 * np.pi) + 1.0
+                                         - np.log(n) + np.log(wRSS)))
+            else:
+                loglik_new = np.inf
+            err = abs(loglik_new - loglik_old)
+            loglik_old = loglik_new
+
+        return beta, it
+
+    coef_X, it_X = _qrem_irls(AX, bX, qn, maxit, tol, max_inv_lambda)
+    coef_Y, it_Y = _qrem_irls(AY, bY, qn, maxit, tol, max_inv_lambda)
+
+    a_hat, c_hat = coef_X
+    b_hat, d_hat = coef_Y
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_pools=len(snapshots_list), n_intervals=n_intervals,
+                iters_X=it_X, iters_Y=it_Y)
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:
