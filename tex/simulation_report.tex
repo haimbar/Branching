@@ -30,7 +30,9 @@
 % Q2. Figure~\ref{fig:fe_vs_K} previously showed declining SD past K=50.
 %     Should SD instead increase as K -> N (few pools => few first-event
 %     observations)?  Investigate by extending K up to 900.
-%     (Answer added in Section~5.7 and confirmed by the updated figure.)
+%     (Answer: SD is monotonically increasing in K; smallest at K=2,
+%      largest near K=N.  K=50 was simply the highest among the old range.
+%      Confirmed by extended sweep; see updated Section~5.7 and figure.)
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Model Description}
@@ -725,30 +727,29 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.407 & 0.067 \\
 \paragraph{Effect of pool size $K$: non-monotone behaviour and the $K=2$ case.}
 The number of child pools is roughly $O(N/K)$ (Section~\ref{sec:comparison}), so
 larger $K$ yields fewer first-event observations and, all else equal, larger
-estimation variance.  However, the relationship is \emph{non-monotone} because
-very small $K$ introduces a competing source of variance: \emph{right-censoring}.
+estimation variance.  The relationship is \emph{monotonically increasing} in $K$.
+Very small $K$ does introduce right-censoring (pools seeded near $T_{\mathrm{stop}}$
+may not fire before the simulation ends), but this effect is small: even at
+$K = 2$ most child pools fire well before $T_{\mathrm{stop}}$, so the dominant
+factor remains pool count, not censoring.
 
-When a child pool is seeded near $T_{\mathrm{stop}}$, it may not fire its first
-division before the simulation ends.  Such a pool contributes a censored waiting
-time $T_{\mathrm{stop}} - t_0$ with no event-type increment, which is
-informative but less so than a completed event.  With $K = 2$ the cascade of
-splits is maximal — virtually every division in the system becomes the ``first
-event'' of some single-cell child pool — so the first-event MLE
-\emph{observes essentially the same events as the full-data MLE}.  The only
-reason its SD does not drop all the way to the full-data level is the (small)
-fraction of late-seeded pools that are right-censored at $T_{\mathrm{stop}}$.
-This answers \textbf{Q1}: $K = 2$ is not information-equivalent to continuous
-observation solely because of endpoint censoring; if censoring were negligible,
-the two estimators would coincide.
+With $K = 2$ the cascade of splits is maximal — virtually every division in the
+system becomes the ``first event'' of some single-cell child pool — so the
+first-event MLE \emph{observes essentially the same events as the full-data MLE}.
+This answers \textbf{Q1}: the gap between $K = 2$ and the full-data MLE is small
+and attributable solely to right-censoring of late-seeded pools (those created
+near $T_{\mathrm{stop}}$ that do not fire before the simulation ends).
 
 For large $K$ close to $N$, very few splits occur, far fewer child pools are
 created, and the first-event estimator has a small sample of first-event
 observations.  Variance therefore rises sharply.  Figure~\ref{fig:fe_vs_K}
 extends the sweep to $K = 900$ (close to $N = 1000$) and confirms
-\textbf{Q2}: the SD is smallest at intermediate $K$ (around $K = 20$--$50$)
-and increases for both very small $K$ (censoring) and very large $K$ (too few
-child pools).  The curve is roughly U-shaped on the log-$K$ axis, with a
-minimum well below the full-data SD only for moderate pool sizes.
+\textbf{Q2}: the SD increases \emph{monotonically} with $K$.  It is smallest
+at $K = 2$ (nearly matching full-data precision) and grows continuously as $K$
+increases.  Endpoint censoring at very small $K$ does not dominate: even at
+$K = 2$ the vast majority of child pools fire their first event well before
+$T_{\mathrm{stop}}$, so more pools reliably means lower variance.  The steep
+upturn visible for $K > 100$ reflects the collapse of the pool-count cascade.
 
 \begin{figure}[H]
   \centering
@@ -756,12 +757,14 @@ minimum well below the full-data SD only for moderate pool sizes.
   \caption{Standard deviation of the first-event MLE as a function of pool
            size $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$, log
            $x$-axis extended to $K = 900$).  Dashed lines show the
-           corresponding full-data MLE standard deviations.  The curve is
-           non-monotone: SD is minimised at intermediate $K$ ($\approx
-           20$--$50$) and rises for very small $K$ (endpoint censoring)
-           and for very large $K$ (too few child pools).  At $K = 2$
-           the first-event MLE nearly matches full-data precision; the
-           remaining gap is due to right-censoring of late-seeded pools.}
+           corresponding full-data MLE standard deviations.  The SD is
+           monotonically increasing in $K$: smallest at $K = 2$ (where
+           nearly every system-level division is observed as a first event)
+           and largest near $K = N$ (too few child pools).  The steep rise
+           for $K > 100$ confirms that the first-event estimator degrades
+           rapidly once the pool-count cascade collapses.  The gap between
+           $K = 2$ and full-data precision is due to right-censoring of
+           late-seeded pools.}
   \label{fig:fe_vs_K}
 \end{figure}
 
