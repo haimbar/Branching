@@ -725,48 +725,129 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.407 & 0.067 \\
 \end{table}
 
 \paragraph{Effect of pool size $K$: non-monotone behaviour and the $K=2$ case.}
-The number of child pools is roughly $O(N/K)$ (Section~\ref{sec:comparison}), so
-larger $K$ yields fewer first-event observations and, all else equal, larger
-estimation variance.  The relationship is \emph{monotonically increasing} in $K$.
-Very small $K$ does introduce right-censoring (pools seeded near $T_{\mathrm{stop}}$
-may not fire before the simulation ends), but this effect is small: even at
-$K = 2$ most child pools fire well before $T_{\mathrm{stop}}$, so the dominant
-factor remains pool count, not censoring.
+The total number of child pools is \emph{not} a simple decreasing function of
+$K$.  Because of the cascade dynamics described in Section~\ref{sec:comparison},
+pool count has a \emph{minimum} near $K = 50$ and then \emph{rises again} for
+larger $K$, before collapsing sharply near $K = N$ when few splits complete
+before $T_{\mathrm{stop}}$ (Table~\ref{tab:fe_K}).  Since each single-cell child
+pool contributes exactly one first-event observation, the SD of the first-event
+estimator tracks this non-monotone pool count: it is smallest at $K = 2$,
+reaches a local \emph{maximum} around $K = 50$, decreases to a local minimum
+around $K = 200$, and then rises steeply as $K$ approaches $N$.
 
-With $K = 2$ the cascade of splits is maximal — virtually every division in the
-system becomes the ``first event'' of some single-cell child pool — so the
-first-event MLE \emph{observes essentially the same events as the full-data MLE}.
-This answers \textbf{Q1}: the gap between $K = 2$ and the full-data MLE is small
-and attributable solely to right-censoring of late-seeded pools (those created
-near $T_{\mathrm{stop}}$ that do not fire before the simulation ends).
+With $K = 2$ the cascade is maximal — virtually every division in the system
+becomes the ``first event'' of some single-cell child pool — so the first-event
+MLE \emph{observes essentially the same events as the full-data MLE}.  This
+answers \textbf{Q1}: the gap at $K = 2$ relative to the full-data MLE is small
+and arises solely from right-censoring of pools seeded near $T_{\mathrm{stop}}$
+that do not fire before the simulation ends.
 
-For large $K$ close to $N$, very few splits occur, far fewer child pools are
-created, and the first-event estimator has a small sample of first-event
-observations.  Variance therefore rises sharply.  Figure~\ref{fig:fe_vs_K}
-extends the sweep to $K = 900$ (close to $N = 1000$) and confirms
-\textbf{Q2}: the SD increases \emph{monotonically} with $K$.  It is smallest
-at $K = 2$ (nearly matching full-data precision) and grows continuously as $K$
-increases.  Endpoint censoring at very small $K$ does not dominate: even at
-$K = 2$ the vast majority of child pools fire their first event well before
-$T_{\mathrm{stop}}$, so more pools reliably means lower variance.  The steep
-upturn visible for $K > 100$ reflects the collapse of the pool-count cascade.
+Figure~\ref{fig:fe_vs_K} confirms the non-monotone shape for $K$ swept from
+$2$ to $900$ (\textbf{Q2}).  Table~\ref{tab:fe_K} also reports the expected
+number of pools $E[\text{pools}]$ as a proxy for experimental cost, enabling
+the cost--precision tradeoff discussed in Section~\ref{sec:cost_tradeoff}.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{fig_first_event_vs_K.pdf}
   \caption{Standard deviation of the first-event MLE as a function of pool
            size $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$, log
-           $x$-axis extended to $K = 900$).  Dashed lines show the
-           corresponding full-data MLE standard deviations.  The SD is
-           monotonically increasing in $K$: smallest at $K = 2$ (where
-           nearly every system-level division is observed as a first event)
-           and largest near $K = N$ (too few child pools).  The steep rise
-           for $K > 100$ confirms that the first-event estimator degrades
-           rapidly once the pool-count cascade collapses.  The gap between
-           $K = 2$ and full-data precision is due to right-censoring of
-           late-seeded pools.}
+           $x$-axis).  Dashed lines show full-data MLE standard deviations.
+           The curve is non-monotone: SD is lowest at $K = 2$ (many pools,
+           nearly every division observed), reaches a local maximum near
+           $K = 50$ (pool count is minimised by the cascade), dips again
+           near $K = 200$, and then rises sharply as $K \to N$ (cascade
+           collapses).}
   \label{fig:fe_vs_K}
 \end{figure}
+
+\begin{table}[H]
+\centering
+\caption{First-event MLE standard deviations and expected pool count as a
+         function of $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$).
+         $E[\text{pools}]$ is the mean total number of pools generated;
+         $E[q_X]$ and $E[q_Y]$ are the mean numbers of X- and Y-seeded
+         single-cell child pools that contribute first-event observations.}
+\label{tab:fe_K}
+\begin{tabular}{rrrrrrrr}
+\toprule
+$K$ & SD($\hat{a}$) & SD($\hat{b}$) & SD($\hat{c}$) & SD($\hat{d}$)
+    & $E[\text{pools}]$ & $E[q_X]$ & $E[q_Y]$ \\
+\midrule
+   2 & 0.029 & 0.013 & 0.012 & 0.034 & 1001 & 658 & 343 \\
+   5 & 0.044 & 0.019 & 0.019 & 0.054 &  480 & 309 & 172 \\
+  10 & 0.051 & 0.026 & 0.021 & 0.052 &  354 & 221 & 133 \\
+  20 & 0.053 & 0.028 & 0.024 & 0.062 &  289 & 176 & 113 \\
+  50 & 0.072 & 0.031 & 0.026 & 0.077 &  169 & 111 &  58 \\
+ 100 & 0.068 & 0.027 & 0.021 & 0.067 &  243 & 153 &  91 \\
+ 200 & 0.057 & 0.027 & 0.018 & 0.050 &  335 & 189 & 146 \\
+ 500 & 0.077 & 0.031 & 0.027 & 0.063 &  355 & 177 & 177 \\
+ 900 & 0.315 & 0.143 & 0.105 & 0.302 &   98 &  49 &  49 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cost--precision tradeoff}
+\label{sec:cost_tradeoff}
+
+Each additional pool imposes an experimental cost (e.g.\ a culture well, a
+sequencing lane).  A natural cost--efficiency metric is
+\[
+  \eta(K) = \frac{1}{\mathrm{SD}(\hat\theta)^2 \cdot E[\text{pools}]},
+\]
+which measures precision (Fisher information, approximately) per unit cost.
+Table~\ref{tab:efficiency} reports $\eta(K)$ for each rate, normalised so that
+$\eta(K=100) = 1$.
+
+\begin{table}[H]
+\centering
+\caption{Relative efficiency $\eta(K)/\eta(K{=}100)$ of the first-event MLE
+         for each rate parameter.  Values $>1$ mean more precision per pool
+         than at $K = 100$.}
+\label{tab:efficiency}
+\begin{tabular}{rrrrrr}
+\toprule
+$K$ & $E[\text{pools}]$ & $\eta_a$ & $\eta_b$ & $\eta_c$ & $\eta_d$ \\
+\midrule
+   2 & 1001 & 1.38 & 1.13 & 0.70 & 0.94 \\
+   5 &  480 & 1.22 & 1.04 & 0.63 & 0.80 \\
+  10 &  354 & 1.25 & 0.76 & 0.64 & 1.14 \\
+  20 &  289 & 1.38 & 0.80 & 0.65 & 1.00 \\
+  50 &  169 & 1.30 & 1.10 & 0.93 & 1.09 \\
+ 100 &  243 & 1.00 & 1.00 & 1.00 & 1.00 \\
+ 200 &  335 & 1.05 & 0.72 & 0.94 & 1.31 \\
+ 500 &  355 & 0.54 & 0.53 & 0.41 & 0.78 \\
+ 900 &   98 & 0.12 & 0.09 & 0.10 & 0.12 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The key findings are:
+\begin{itemize}
+  \item \textbf{The optimal $K$ depends on which rate is of primary interest.}
+        $K = 2$ and $K = 20$ maximise efficiency for the X-cell rates $a$ (both
+        give $\eta_a = 1.38$), while $K = 200$ maximises efficiency for the
+        Y-cell rate $d$ ($\eta_d = 1.31$) and $K = 100$ is near-optimal for
+        the rare cross-rate $c$.  There is no single $K$ that dominates for
+        all four parameters.
+
+  \item \textbf{The $q_X / q_Y$ imbalance explains the parameter-specific
+        optima.}  At small $K$, many more X-seeded pools are created than
+        Y-seeded pools (e.g.\ $q_X = 658$ vs $q_Y = 343$ at $K = 2$),
+        because the pool composition at the time of splitting is biased
+        toward type $X$ (the dominant type).  This gives disproportionately
+        high precision for $a$ and $b$ but lower precision for $c$ and $d$.
+        At larger $K$ (e.g.\ $K = 500$) the seedings become balanced
+        ($q_X \approx q_Y$), which relatively favours Y-rate estimation.
+
+  \item \textbf{$K = 50$ is the least efficient intermediate choice.}  It
+        minimises the cascade pool count (Table~\ref{tab:fe_K}), delivering
+        the worst combination of few observations and moderate imbalance.
+
+  \item \textbf{$K > 200$ rapidly loses efficiency.}  By $K = 500$ all
+        efficiencies drop below 0.8 relative to $K = 100$, and $K = 900$
+        is essentially uninformative ($\eta < 0.12$ for all parameters).
+\end{itemize}
 
 \subsection{Conclusions}
 
