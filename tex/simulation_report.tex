@@ -1058,6 +1058,144 @@ $d$ & 0.400 & 0.027 & 0.410 & 0.075 & 0.411 & 0.108 \\
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────
+\section{Trajectory-Based Estimation from Count Data}
+\label{sec:trajectory}
+
+\subsection{Motivation}
+
+Both the first-event and pure-pool schemes require tracking \emph{individual
+events}: knowing whether a given cell division produced an X or Y offspring.
+In many experimental settings only aggregate cell counts are observable — for
+example, colony sizes counted under a microscope or by flow cytometry — with
+no ability to tag which cell generated which offspring.
+
+We ask: can the four rates $(a,b,c,d)$ be estimated accurately with far fewer
+pools by using the entire count trajectory $(n_X(t),\,n_Y(t))$ at a sequence
+of checkpoints, rather than just the first event?
+
+\subsection{The WLS estimator}
+\label{subsec:traj_wls}
+
+The mean dynamics of the two-type branching process satisfy the linear ODE
+\begin{equation}
+  \frac{d}{dt}\begin{pmatrix}E[X]\\E[Y]\end{pmatrix}
+  = \underbrace{\begin{pmatrix}a & c \\ b & d\end{pmatrix}}_{M}
+    \begin{pmatrix}E[X]\\E[Y]\end{pmatrix}.
+  \label{eq:mean_ode}
+\end{equation}
+Discretising over a short interval $[t_i,\,t_{i+1}]$ with midpoint counts
+$\bar{n}_X = (n_X(t_i)+n_X(t_{i+1}))/2$ and $\bar{n}_Y$ analogously gives
+the approximate linear model
+\begin{align}
+  \frac{\Delta X_i}{\Delta t_i} &\approx a\,\bar{n}_{X,i} + c\,\bar{n}_{Y,i},
+  \label{eq:wls_x} \\
+  \frac{\Delta Y_i}{\Delta t_i} &\approx b\,\bar{n}_{X,i} + d\,\bar{n}_{Y,i}.
+  \label{eq:wls_y}
+\end{align}
+Because $\Delta X_i$ and $\Delta Y_i$ are approximately Poisson with means
+$(a\bar{n}_X + c\bar{n}_Y)\Delta t_i$ and $(b\bar{n}_X + d\bar{n}_Y)\Delta t_i$,
+the variance of the observed rate $\Delta X_i/\Delta t_i$ scales as
+$1/\Delta t_i$.  We therefore fit~\eqref{eq:wls_x}--\eqref{eq:wls_y} by
+\emph{weighted} least squares (WLS) with weights $\Delta t_i$, implemented
+as non-negative least squares (NNLS) to enforce $a,b,c,d \ge 0$.
+
+Given $P$ independent pools each sampled at $M$ equally-spaced (by total cell
+count) checkpoints, the two $P(M-1)$-row linear systems are solved
+simultaneously, yielding estimates $(\hat{a},\hat{b},\hat{c},\hat{d})$.
+No individual event labels are required — only the two cell counts at each
+checkpoint.
+
+\subsection{Identifiability}
+
+Equation~\eqref{eq:wls_x} identifies $a$ and $c$ separately only when
+$\bar{n}_{Y,i} > 0$ for some intervals, i.e.\ only after Y cells have
+appeared.  Starting from $(n_X,n_Y)=(1,0)$, Y cells first appear (in
+expectation) after $1/b = 10$ X events.  With $M = 50$ checkpoints over a
+$N = 1000$-cell simulation the pool has typically reached several hundred
+cells of each type by the later checkpoints, providing ample variation in
+$(\bar{n}_X,\bar{n}_Y)$.  A single pool ($P=1$) is therefore \emph{not}
+sufficient: the c (Y$\to$X) and d (Y$\to$Y) rates, which are driven by rare
+early-Y intervals, are estimated with large variance and bias.  Multiple
+pools ($P \ge 3$) supply independent trajectory realisations and regularise
+the design matrix.
+
+\subsection{Simulation study}
+
+Table~\ref{tab:trajectory} and Figure~\ref{fig:trajectory} compare the
+trajectory WLS estimator against the full-data MLE and the single-cell
+first-event MLE ($K=10$, $\approx355$ pools) over $M_{\mathrm{rep}}=200$
+replicates, $N=1000$.  Three values of $P$ are evaluated; each pool provides
+$M=50$ checkpoints.
+
+\begin{table}[H]
+\centering
+\caption{Trajectory WLS versus first-event MLE ($N=1000$, $M_{\mathrm{rep}}=200$).
+         Traj$_P$ = trajectory WLS using $P$ pools with 50 snapshots each.
+         Full-data SD is the benchmark (uses all event labels).}
+\label{tab:trajectory}
+\begin{tabular}{lcrrrrrrrrr}
+\toprule
+ & & & \multicolumn{2}{c}{First-event ($K\!=\!10$)} &
+       \multicolumn{2}{c}{Traj$_1$} &
+       \multicolumn{2}{c}{Traj$_3$} &
+       \multicolumn{2}{c}{Traj$_{10}$} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}
+Param & True & FD SD & Mean & SD & Mean & SD & Mean & SD & Mean & SD \\
+\midrule
+$a$ & 0.500 & 0.020 & 0.511 & 0.053 & 0.402 & 0.148 & 0.489 & 0.054 & 0.503 & 0.022 \\
+$b$ & 0.100 & 0.008 & 0.103 & 0.022 & 0.120 & 0.123 & 0.091 & 0.050 & 0.091 & 0.020 \\
+$c$ & 0.050 & 0.010 & 0.050 & 0.020 & 0.215 & 0.248 & 0.066 & 0.085 & 0.043 & 0.033 \\
+$d$ & 0.400 & 0.027 & 0.401 & 0.057 & 0.386 & 0.195 & 0.417 & 0.083 & 0.414 & 0.035 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{fig_trajectory_ols.pdf}
+  \caption{Trajectory WLS versus first-event MLE ($N=1000$, $M_{\mathrm{rep}}=200$,
+           50 snapshots per pool).
+           Blue: full-data MLE.  Green: first-event ($K=10$, $\approx 355$
+           pools).  Purple/orchid/pink: trajectory WLS with $P=1,\,3,\,10$
+           pools.  Red dashed lines: true values.}
+  \label{fig:trajectory}
+\end{figure}
+
+\subsection{Conclusions}
+
+\begin{itemize}
+  \item \textbf{$P = 1$ pool is insufficient.}
+        A single trajectory starting from $(1,0)$ is nearly unidentifiable
+        for $c$ (Y$\to$X): the design matrix for~\eqref{eq:wls_x} is nearly
+        rank-deficient until Y cells are abundant, leading to large variance
+        and upward bias ($\hat{c} \approx 0.22$ vs.\ true $0.05$).
+
+  \item \textbf{$P = 3$ pools achieves accuracy comparable to first-event
+        for $a$ and $d$.}
+        SD for $a$ is 0.054 (FE: 0.053); SD for $d$ is 0.083 (FE: 0.057).
+        The rarer rates $b$ and $c$ remain noisier because they depend on
+        the early-appearance of minority cells.  Three pools reduce pool
+        count from 355 to 3 — a $120\times$ reduction.
+
+  \item \textbf{$P = 10$ pools matches or beats first-event for all
+        parameters except $c$.}
+        SD for $a$ is 0.022 (FE: 0.053, full-data: 0.020); SD for $b$ is
+        0.020 (FE: 0.022); SD for $d$ is 0.035 (FE: 0.057).  Only $c$
+        remains slightly worse (SD 0.033 vs.\ FE 0.020), because $c$ governs
+        the rare Y$\to$X events which are underrepresented when starting from
+        a single X cell.  Ten pools achieve a $35\times$ reduction in pool
+        count relative to first-event.
+
+  \item \textbf{Practical recommendation.}
+        If experimental cost is proportional to pool count and individual
+        event labels are unavailable, trajectory WLS with $P = 10$ pools and
+        $M = 50$ count snapshots per pool is preferred.  The estimator is
+        more complex than first-event (requires solving two linear systems
+        rather than computing a ratio), but requires only a single count
+        observation at each checkpoint — no cell tracking or sorting needed.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Discussion}
 \label{sec:discussion}
 

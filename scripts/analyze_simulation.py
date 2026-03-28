@@ -25,7 +25,8 @@ sys.path.insert(0, SCRIPT_DIR)
 from SimulationScenario import (simulate_cells, simulate_with_splitting,
                                  estimate_rates_single, estimate_rates_parallel,
                                  estimate_rates_counts_only, estimate_rates_first_event,
-                                 simulate_pure_split, estimate_rates_pure_phase)
+                                 simulate_pure_split, estimate_rates_pure_phase,
+                                 extract_count_snapshots, estimate_rates_trajectory_ols)
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -505,3 +506,80 @@ for K_pure in K_vals_pure:
     fig.savefig(fig_path(fname), bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved figures/{fname}")
+
+# ── 9. Trajectory-OLS estimation (count-only, few pools) ─────────────────────
+print("\n── Trajectory OLS estimation ────────────────────────────────────────────")
+
+M_snap   = 50        # snapshots per pool (M+1 points, M intervals)
+P_vals   = [1, 3, 10]  # number of independent pools per estimate
+M_traj   = 200       # Monte Carlo replicates
+
+# Storage: shape (M_traj, 4) per P value
+ests_traj = {P: np.empty((M_traj, 4)) for P in P_vals}
+
+for m in range(M_traj):
+    base_seed = 8000 + m * max(P_vals)
+    for P in P_vals:
+        snap_list = []
+        for p_idx in range(P):
+            t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N,
+                                             seed=base_seed + p_idx)
+            snap_list.append(extract_count_snapshots(t_, nx_, ny_, M=M_snap))
+        e = estimate_rates_trajectory_ols(snap_list)
+        ests_traj[P][m] = [e['a'], e['b'], e['c'], e['d']]
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M_traj} replicates done", flush=True)
+
+# Print summary table
+print(f"\n  {'':>5}  {'True':>6}  ", end="")
+print("  ".join(f"{'P='+str(P)+' mean':>10}  {'SD':>7}" for P in P_vals))
+print("  " + "-" * (14 + 20 * len(P_vals)))
+for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+    row = f"  {pname:>5}  {true:>6.4f}  "
+    for P in P_vals:
+        row += f"  {ests_traj[P][:, j].mean():>10.4f}  {ests_traj[P][:, j].std():>7.4f}"
+    print(row)
+
+# Reference: full-data SD
+print("\n  Full-data SD (benchmark):")
+for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+    print(f"    {pname}: {ests_single[:, j].std():.4f}")
+
+# Box-plot: full-data, first-event K=10, trajectory P=1/3/10
+fig, axes = plt.subplots(1, 4, figsize=(16, 5))
+fig.suptitle(
+    f"Trajectory OLS vs first-event ($N={N}$, {M_traj} replicates, "
+    f"{M_snap} snapshots/pool)",
+    fontsize=11)
+
+# Re-use ests_fe from section 7 (K=10); if not available, recompute
+try:
+    _fe = ests_fe          # set in section 7
+except NameError:
+    _fe = np.empty((M_traj, 4))
+    for m in range(M_traj):
+        res_fe_ = simulate_with_splitting(**TRUE, nx0=1, ny0=0, N=N,
+                                          K=10, p=0.5, mode="parallel",
+                                          seed=1000 + m)
+        e_fe_ = estimate_rates_first_event(res_fe_)
+        _fe[m] = [e_fe_['a'], e_fe_['b'], e_fe_['c'], e_fe_['d']]
+
+colors_traj = ["mediumpurple", "orchid", "deeppink"]
+
+for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
+    ax = axes[j]
+    data   = [ests_single[:, j], _fe[:, j]] + [ests_traj[P][:, j] for P in P_vals]
+    labels = ["Full\ndata", "First-event\n$K=10$"] + [f"Traj OLS\n$P={P}$" for P in P_vals]
+    bp = ax.boxplot(data, tick_labels=labels, patch_artist=True,
+                    widths=0.5, medianprops=dict(color="black", lw=2))
+    box_colors = ["steelblue", "seagreen"] + colors_traj
+    for patch, col in zip(bp['boxes'], box_colors):
+        patch.set_facecolor(col); patch.set_alpha(0.6)
+    ax.axhline(true, color="crimson", ls="--", lw=1.8)
+    ax.set_title(f"${pname}$   ({desc})", fontsize=9)
+    ax.grid(True, alpha=0.3, axis="y")
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_trajectory_ols.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_trajectory_ols.pdf")

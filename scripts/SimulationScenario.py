@@ -787,6 +787,114 @@ def estimate_rates_pure_phase(result):
                 n_pure_X=n_pure_X, n_pure_Y=n_pure_Y)
 
 
+def extract_count_snapshots(times, nx_trace, ny_trace, M=50):
+    """
+    Extract M+1 equally-spaced (by total cell count) snapshots from a
+    simulate_cells() trajectory.
+
+    Checkpoints are placed at total-cell-count thresholds
+    0, N/M, 2N/M, ..., N, where N = nx_trace[-1] + ny_trace[-1].
+    For each threshold the first index with total >= threshold is used,
+    so no interpolation is needed.
+
+    Parameters
+    ----------
+    times, nx_trace, ny_trace : sequences
+        Output of simulate_cells().
+    M : int
+        Number of intervals (M+1 snapshot points).
+
+    Returns
+    -------
+    list of (t, nx, ny) tuples — M+1 entries.
+    """
+    times     = list(times)
+    nx_trace  = list(nx_trace)
+    ny_trace  = list(ny_trace)
+    total     = [x + y for x, y in zip(nx_trace, ny_trace)]
+    N_final   = total[-1]
+    thresholds = [k * N_final / M for k in range(M + 1)]
+
+    snapshots = []
+    j = 0
+    for thr in thresholds:
+        while j < len(total) - 1 and total[j] < thr:
+            j += 1
+        snapshots.append((times[j], nx_trace[j], ny_trace[j]))
+    return snapshots
+
+
+def estimate_rates_trajectory_ols(snapshots_list):
+    """
+    WLS estimate of (a, b, c, d) from count-only trajectory snapshots.
+
+    Fits the mean branching-process dynamics
+
+        dX/dt = a X + c Y
+        dY/dt = b X + d Y
+
+    by weighted least squares over all intervals in all pools.  Each
+    interval [t_i, t_{i+1}] contributes one row to each of two linear
+    systems, with midpoint counts as regressors:
+
+        ΔX / Δt  =  a * X_mid  +  c * Y_mid
+        ΔY / Δt  =  b * X_mid  +  d * Y_mid
+
+    Rows are weighted by sqrt(Δt) so that longer (more informative)
+    intervals have higher influence.  Non-negative least squares is used
+    to enforce rate ≥ 0.
+
+    Parameters
+    ----------
+    snapshots_list : list of lists
+        Each element is a list of (t, nx, ny) tuples from one pool,
+        as returned by extract_count_snapshots().
+
+    Returns
+    -------
+    dict with keys a, b, c, d (estimates), n_pools, n_intervals.
+    """
+    from scipy.optimize import nnls
+
+    AX, bX_vec = [], []
+    AY, bY_vec = [], []
+    n_intervals = 0
+
+    for snaps in snapshots_list:
+        for i in range(len(snaps) - 1):
+            t0, nx0, ny0 = snaps[i]
+            t1, nx1, ny1 = snaps[i + 1]
+            dt = t1 - t0
+            if dt <= 0:
+                continue
+            nx_mid = (nx0 + nx1) / 2.0
+            ny_mid = (ny0 + ny1) / 2.0
+            dX     = nx1 - nx0
+            dY     = ny1 - ny0
+            # WLS weight = sqrt(dt); transforms to unweighted least-squares
+            # for the system  (dX/dt)*sqrt(dt) = a*(nx_mid*sqrt(dt)) + ...
+            w = np.sqrt(dt)
+            AX.append([nx_mid * w, ny_mid * w])
+            bX_vec.append(dX / w)
+            AY.append([nx_mid * w, ny_mid * w])
+            bY_vec.append(dY / w)
+            n_intervals += 1
+
+    AX = np.array(AX)
+    bX = np.array(bX_vec)
+    AY = np.array(AY)
+    bY = np.array(bY_vec)
+
+    coef_X, _ = nnls(AX, bX)
+    coef_Y, _ = nnls(AY, bY)
+
+    a_hat, c_hat = coef_X
+    b_hat, d_hat = coef_Y
+
+    return dict(a=a_hat, b=b_hat, c=c_hat, d=d_hat,
+                n_pools=len(snapshots_list), n_intervals=n_intervals)
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:
