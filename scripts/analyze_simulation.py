@@ -355,7 +355,7 @@ fig.suptitle(
 for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
     ax = axes[j]
     bp = ax.boxplot([ests_single[:, j], ests_co[:, j]],
-                    labels=["Full data", "Counts only"],
+                    tick_labels=["Full data", "Counts only"],
                     patch_artist=True, widths=0.5,
                     medianprops=dict(color="black", lw=2))
     for patch, col in zip(bp['boxes'], ["steelblue", "darkorange"]):
@@ -389,7 +389,7 @@ fig.suptitle(
 for j, (pname, desc, true) in enumerate(zip(param_names, descriptions, TRUE_vals)):
     ax = axes[j]
     bp = ax.boxplot([ests_single[:, j], ests_fe[:, j]],
-                    labels=["Full data", f"First-event\n$K={K_FE}$"],
+                    tick_labels=["Full data", f"First-event\n$K={K_FE}$"],
                     patch_artist=True, widths=0.5,
                     medianprops=dict(color="black", lw=2))
     for patch, col in zip(bp['boxes'], ["steelblue", "seagreen"]):
@@ -403,7 +403,7 @@ plt.close(fig)
 print("Saved figures/fig_estimation_first_event.pdf")
 
 # SD vs K curve (Q4)
-K_vals_fe = [2, 5, 10, 20, 50, 100]
+K_vals_fe = [2, 5, 10, 20, 50, 100, 200, 500, 900]
 sd_fe_K = {pname: [] for pname in param_names}
 M_K = 100
 for Kk in K_vals_fe:

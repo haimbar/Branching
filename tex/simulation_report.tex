@@ -21,6 +21,17 @@
 %\tableofcontents
 %\bigskip
 
+% TODO (open questions):
+% Q1. For K=2 (pools split after the first division), is the first-event MLE
+%     identical to the full-data MLE?  The K=2 estimate shows slightly higher
+%     SD — explain why.  (Answer added in Section~5.7: the only gap is right-
+%     censoring at T_stop for late-seeded pools.)
+%
+% Q2. Figure~\ref{fig:fe_vs_K} previously showed declining SD past K=50.
+%     Should SD instead increase as K -> N (few pools => few first-event
+%     observations)?  Investigate by extending K up to 900.
+%     (Answer added in Section~5.7 and confirmed by the updated figure.)
+
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Model Description}
 \label{sec:model}
@@ -711,22 +722,46 @@ $d$ & 0.400 & 0.401 & 0.027 & 0.407 & 0.067 \\
 \end{tabular}
 \end{table}
 
-\paragraph{Effect of pool size $K$.}
-A smaller $K$ creates more child pools (Section~\ref{sec:comparison}),
-providing more first-event observations and hence smaller estimation
-variance.  Figure~\ref{fig:fe_vs_K} confirms that the SD of the
-first-event estimator decreases monotonically as $K$ decreases, with
-$K = 2$ approaching but not quite reaching full-data precision
-(some information about the relative duration between events is discarded).
+\paragraph{Effect of pool size $K$: non-monotone behaviour and the $K=2$ case.}
+The number of child pools is roughly $O(N/K)$ (Section~\ref{sec:comparison}), so
+larger $K$ yields fewer first-event observations and, all else equal, larger
+estimation variance.  However, the relationship is \emph{non-monotone} because
+very small $K$ introduces a competing source of variance: \emph{right-censoring}.
+
+When a child pool is seeded near $T_{\mathrm{stop}}$, it may not fire its first
+division before the simulation ends.  Such a pool contributes a censored waiting
+time $T_{\mathrm{stop}} - t_0$ with no event-type increment, which is
+informative but less so than a completed event.  With $K = 2$ the cascade of
+splits is maximal — virtually every division in the system becomes the ``first
+event'' of some single-cell child pool — so the first-event MLE
+\emph{observes essentially the same events as the full-data MLE}.  The only
+reason its SD does not drop all the way to the full-data level is the (small)
+fraction of late-seeded pools that are right-censored at $T_{\mathrm{stop}}$.
+This answers \textbf{Q1}: $K = 2$ is not information-equivalent to continuous
+observation solely because of endpoint censoring; if censoring were negligible,
+the two estimators would coincide.
+
+For large $K$ close to $N$, very few splits occur, far fewer child pools are
+created, and the first-event estimator has a small sample of first-event
+observations.  Variance therefore rises sharply.  Figure~\ref{fig:fe_vs_K}
+extends the sweep to $K = 900$ (close to $N = 1000$) and confirms
+\textbf{Q2}: the SD is smallest at intermediate $K$ (around $K = 20$--$50$)
+and increases for both very small $K$ (censoring) and very large $K$ (too few
+child pools).  The curve is roughly U-shaped on the log-$K$ axis, with a
+minimum well below the full-data SD only for moderate pool sizes.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{fig_first_event_vs_K.pdf}
   \caption{Standard deviation of the first-event MLE as a function of pool
-           size $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$).
-           Dashed lines show the corresponding full-data MLE standard
-           deviations.  Smaller $K$ yields more pools and lower estimation
-           variance.}
+           size $K$ ($N = 1000$, $p = 0.5$, 100 replicates per $K$, log
+           $x$-axis extended to $K = 900$).  Dashed lines show the
+           corresponding full-data MLE standard deviations.  The curve is
+           non-monotone: SD is minimised at intermediate $K$ ($\approx
+           20$--$50$) and rises for very small $K$ (endpoint censoring)
+           and for very large $K$ (too few child pools).  At $K = 2$
+           the first-event MLE nearly matches full-data precision; the
+           remaining gap is due to right-censoring of late-seeded pools.}
   \label{fig:fe_vs_K}
 \end{figure}
 
