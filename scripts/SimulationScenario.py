@@ -1010,6 +1010,54 @@ def estimate_rates_trajectory_qrem(snapshots_list, qn=0.5,
                 iters_X=it_X, iters_Y=it_Y)
 
 
+def predict_final_counts(a_hat, b_hat, c_hat, d_hat, N, nx0=1.0, ny0=0.0):
+    """
+    Integrate the mean-field ODE
+
+        dX/dt = a*X + c*Y
+        dY/dt = b*X + d*Y
+
+    from (nx0, ny0) until X + Y first reaches N, and return (X_pred, Y_pred)
+    at that crossing point.
+
+    Uses scipy solve_ivp with event detection.  If the total never reaches N
+    within t_max = 500 (indicating very poor rate estimates), the final
+    integrated values are returned as-is.
+
+    Parameters
+    ----------
+    a_hat, b_hat, c_hat, d_hat : float
+        Estimated division rates.
+    N : int or float
+        Target total cell count.
+    nx0, ny0 : float
+        Initial counts (default: single X founder).
+
+    Returns
+    -------
+    (X_pred, Y_pred) : tuple of float
+        Predicted cell counts when total first equals N.
+    """
+    from scipy.integrate import solve_ivp
+
+    def odes(t, y):
+        x, yy = y
+        return [a_hat * x + c_hat * yy, b_hat * x + d_hat * yy]
+
+    def hit_N(t, y):
+        return y[0] + y[1] - N
+    hit_N.terminal = True
+    hit_N.direction = 1
+
+    sol = solve_ivp(odes, [0.0, 500.0], [float(nx0), float(ny0)],
+                    events=hit_N, rtol=1e-8, atol=1e-10)
+
+    if sol.t_events[0].size > 0:
+        return float(sol.y_events[0][0, 0]), float(sol.y_events[0][0, 1])
+    # Did not reach N (degenerate rates): return last integrated values
+    return float(sol.y[0, -1]), float(sol.y[1, -1])
+
+
 def save_csv_split(result, path="simulation_split.csv"):
     pools = result['pools']
     with open(path, "w", newline="") as f:

@@ -27,7 +27,8 @@ from SimulationScenario import (simulate_cells, simulate_with_splitting,
                                  estimate_rates_counts_only, estimate_rates_first_event,
                                  simulate_pure_split, estimate_rates_pure_phase,
                                  extract_count_snapshots, estimate_rates_trajectory_ols,
-                                 estimate_rates_trajectory_qrem)
+                                 estimate_rates_trajectory_qrem,
+                                 predict_final_counts)
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -737,3 +738,220 @@ plt.tight_layout()
 fig.savefig(fig_path("fig_wls_vs_qrem.pdf"), bbox_inches="tight")
 plt.close(fig)
 print("  Saved figures/fig_wls_vs_qrem.pdf")
+
+# ── 9e. Full P×M grid: rate accuracy + final-count prediction ─────────────────
+print("\n── Full P×M grid (P×M sweep + count prediction) ─────────────────────────")
+
+P_grid = [3, 5, 10, 20, 50]
+M_grid = [5, 10, 20, 50]
+P_max  = max(P_grid)   # 51 pools simulated per replicate (P_max estim. + 1 holdout)
+
+# ests_grid[pi, mi, m, j]      — estimate of rate j at (P_grid[pi], M_grid[mi]), rep m
+# count_ratios[pi, mi, m, k]   — k=0: X_hat/X_true, k=1: Y_hat/Y_true
+ests_grid    = np.empty((len(P_grid), len(M_grid), M_traj, 4))
+count_ratios = np.empty((len(P_grid), len(M_grid), M_traj, 2))
+
+for m in range(M_traj):
+    base_seed = 10000 + m * (P_max + 1)
+    # Simulate P_max estimation pools + 1 independent holdout pool
+    trajectories = []
+    for p_idx in range(P_max + 1):
+        t_, nx_, ny_, _ = simulate_cells(**TRUE, nx0=1, ny0=0, N=N,
+                                         seed=base_seed + p_idx)
+        trajectories.append((t_, nx_, ny_))
+    # Holdout truth (last trajectory)
+    X_true = float(trajectories[P_max][1][-1])
+    Y_true = float(trajectories[P_max][2][-1])
+
+    for pi, P in enumerate(P_grid):
+        for mi, Mv in enumerate(M_grid):
+            snap_list = [extract_count_snapshots(t_, nx_, ny_, M=Mv)
+                         for t_, nx_, ny_ in trajectories[:P]]
+            e = estimate_rates_trajectory_ols(snap_list)
+            ests_grid[pi, mi, m] = [e['a'], e['b'], e['c'], e['d']]
+            X_hat, Y_hat = predict_final_counts(e['a'], e['b'], e['c'], e['d'], N)
+            count_ratios[pi, mi, m, 0] = X_hat / X_true if X_true > 0 else np.nan
+            count_ratios[pi, mi, m, 1] = Y_hat / Y_true if Y_true > 0 else np.nan
+
+    if (m + 1) % 50 == 0:
+        print(f"  {m+1}/{M_traj} replicates done", flush=True)
+
+# ── Print summary tables ───────────────────────────────────────────────────────
+print("\n  Rate SD across P×M grid  (P = columns, M = rows):")
+for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+    print(f"\n  {pname}  (true = {true:.3f}):")
+    print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+    for mi, Mv in enumerate(M_grid):
+        row = f"  M={Mv:2d}  "
+        for pi in range(len(P_grid)):
+            row += f"  {ests_grid[pi, mi, :, j].std():6.4f}"
+        print(row)
+
+print("\n  Rate Bias (mean - true) across P×M grid:")
+for j, (pname, true) in enumerate(zip(param_names, TRUE_vals)):
+    print(f"\n  {pname}  (true = {true:.3f}):")
+    print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+    for mi, Mv in enumerate(M_grid):
+        row = f"  M={Mv:2d}  "
+        for pi in range(len(P_grid)):
+            row += f"  {ests_grid[pi, mi, :, j].mean() - true:+.4f}"
+        print(row)
+
+print("\n  Mean of X_hat / X_true  (target = 1.000):")
+print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+for mi, Mv in enumerate(M_grid):
+    row = f"  M={Mv:2d}  "
+    for pi in range(len(P_grid)):
+        row += f"  {np.nanmean(count_ratios[pi, mi, :, 0]):6.4f}"
+    print(row)
+
+print("\n  SD of X_hat / X_true:")
+print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+for mi, Mv in enumerate(M_grid):
+    row = f"  M={Mv:2d}  "
+    for pi in range(len(P_grid)):
+        row += f"  {np.nanstd(count_ratios[pi, mi, :, 0]):6.4f}"
+    print(row)
+
+print("\n  Mean of Y_hat / Y_true  (target = 1.000):")
+print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+for mi, Mv in enumerate(M_grid):
+    row = f"  M={Mv:2d}  "
+    for pi in range(len(P_grid)):
+        row += f"  {np.nanmean(count_ratios[pi, mi, :, 1]):6.4f}"
+    print(row)
+
+print("\n  SD of Y_hat / Y_true:")
+print("        " + "  ".join(f"  P={P:2d}" for P in P_grid))
+for mi, Mv in enumerate(M_grid):
+    row = f"  M={Mv:2d}  "
+    for pi in range(len(P_grid)):
+        row += f"  {np.nanstd(count_ratios[pi, mi, :, 1]):6.4f}"
+    print(row)
+
+# ── Figure 1: heatmap of rate SD across P×M grid ─────────────────────────────
+fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+fig.suptitle(
+    f"Trajectory WLS rate-estimate SD across $P \\times M$ grid "
+    f"($N={N}$, {M_traj} replicates)",
+    fontsize=11)
+
+P_labels = [str(P) for P in P_grid]
+M_labels = [str(Mv) for Mv in M_grid]
+
+for j, (pname, ax) in enumerate(zip(param_names,
+                                    [axes[0,0], axes[0,1], axes[1,0], axes[1,1]])):
+    # mat[mi, pi] = SD of parameter j for M_grid[mi], P_grid[pi]
+    mat = np.array([[ests_grid[pi, mi, :, j].std()
+                     for pi in range(len(P_grid))]
+                    for mi in range(len(M_grid))])
+    im = ax.imshow(mat, aspect='auto', cmap='YlOrRd')
+    ax.set_xticks(range(len(P_grid))); ax.set_xticklabels(P_labels)
+    ax.set_yticks(range(len(M_grid))); ax.set_yticklabels(M_labels)
+    ax.set_xlabel("$P$ (pools)"); ax.set_ylabel("$M$ (checkpoints)")
+    ax.set_title(f"SD of $\\hat{{{pname}}}$  (true {TRUE_vals[j]:.2f})", fontsize=10)
+    plt.colorbar(im, ax=ax, shrink=0.85)
+    for mi in range(len(M_grid)):
+        for pi in range(len(P_grid)):
+            ax.text(pi, mi, f"{mat[mi,pi]:.3f}", ha='center', va='center',
+                    fontsize=7, color='black')
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_pm_grid_sd.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_pm_grid_sd.pdf")
+
+# ── Figure 2: heatmap of rate bias across P×M grid ────────────────────────────
+fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+fig.suptitle(
+    f"Trajectory WLS rate-estimate bias across $P \\times M$ grid "
+    f"($N={N}$, {M_traj} replicates)",
+    fontsize=11)
+
+for j, (pname, true, ax) in enumerate(zip(param_names, TRUE_vals,
+                                           [axes[0,0], axes[0,1],
+                                            axes[1,0], axes[1,1]])):
+    mat = np.array([[ests_grid[pi, mi, :, j].mean() - true
+                     for pi in range(len(P_grid))]
+                    for mi in range(len(M_grid))])
+    vmax = np.abs(mat).max()
+    im = ax.imshow(mat, aspect='auto', cmap='RdBu_r',
+                   vmin=-vmax, vmax=vmax)
+    ax.set_xticks(range(len(P_grid))); ax.set_xticklabels(P_labels)
+    ax.set_yticks(range(len(M_grid))); ax.set_yticklabels(M_labels)
+    ax.set_xlabel("$P$ (pools)"); ax.set_ylabel("$M$ (checkpoints)")
+    ax.set_title(f"Bias of $\\hat{{{pname}}}$  (true {true:.2f})", fontsize=10)
+    plt.colorbar(im, ax=ax, shrink=0.85)
+    for mi in range(len(M_grid)):
+        for pi in range(len(P_grid)):
+            ax.text(pi, mi, f"{mat[mi,pi]:+.3f}", ha='center', va='center',
+                    fontsize=7, color='black')
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_pm_grid_bias.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_pm_grid_bias.pdf")
+
+# ── Figure 3: heatmaps of count-ratio accuracy ────────────────────────────────
+fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+fig.suptitle(
+    f"Final-count prediction accuracy $\\hat{{n}}_X(T)/n_X(T)$ and "
+    f"$\\hat{{n}}_Y(T)/n_Y(T)$ across $P \\times M$ grid "
+    f"($N={N}$, {M_traj} replicates)",
+    fontsize=10)
+
+ratio_specs = [
+    (0, "mean", r"Mean $\hat{n}_X(T)/n_X(T)$",  axes[0, 0]),
+    (0, "sd",   r"SD $\hat{n}_X(T)/n_X(T)$",    axes[0, 1]),
+    (1, "mean", r"Mean $\hat{n}_Y(T)/n_Y(T)$",  axes[1, 0]),
+    (1, "sd",   r"SD $\hat{n}_Y(T)/n_Y(T)$",    axes[1, 1]),
+]
+
+for k, stat, title, ax in ratio_specs:
+    if stat == "mean":
+        mat = np.array([[np.nanmean(count_ratios[pi, mi, :, k])
+                         for pi in range(len(P_grid))]
+                        for mi in range(len(M_grid))])
+        # Diverging around 1 for mean
+        vmax = max(abs(mat.min() - 1), abs(mat.max() - 1))
+        im = ax.imshow(mat, aspect='auto', cmap='RdBu_r',
+                       vmin=1 - vmax, vmax=1 + vmax)
+        fmt = ".3f"
+    else:
+        mat = np.array([[np.nanstd(count_ratios[pi, mi, :, k])
+                         for pi in range(len(P_grid))]
+                        for mi in range(len(M_grid))])
+        im = ax.imshow(mat, aspect='auto', cmap='YlOrRd')
+        fmt = ".3f"
+    ax.set_xticks(range(len(P_grid))); ax.set_xticklabels(P_labels)
+    ax.set_yticks(range(len(M_grid))); ax.set_yticklabels(M_labels)
+    ax.set_xlabel("$P$ (pools)"); ax.set_ylabel("$M$ (checkpoints)")
+    ax.set_title(title, fontsize=9)
+    plt.colorbar(im, ax=ax, shrink=0.85)
+    for mi in range(len(M_grid)):
+        for pi in range(len(P_grid)):
+            ax.text(pi, mi, format(mat[mi, pi], fmt), ha='center', va='center',
+                    fontsize=7, color='black')
+
+plt.tight_layout()
+fig.savefig(fig_path("fig_pm_grid_counts.pdf"), bbox_inches="tight")
+plt.close(fig)
+print("  Saved figures/fig_pm_grid_counts.pdf")
+
+# ── Print LaTeX-ready table rows ──────────────────────────────────────────────
+print("\n  LaTeX table rows  (P block | M | a mean SD | b mean SD | c mean SD | d mean SD | Xratio mean SD | Yratio mean SD):")
+for pi, P in enumerate(P_grid):
+    first = True
+    for mi, Mv in enumerate(M_grid):
+        p_col = str(P) if first else ""
+        first = False
+        row_parts = [p_col, str(Mv)]
+        for j in range(4):
+            mn  = ests_grid[pi, mi, :, j].mean()
+            sd  = ests_grid[pi, mi, :, j].std()
+            row_parts += [f"{mn:.3f}", f"{sd:.3f}"]
+        for k in range(2):
+            mn  = np.nanmean(count_ratios[pi, mi, :, k])
+            sd  = np.nanstd(count_ratios[pi, mi, :, k])
+            row_parts += [f"{mn:.3f}", f"{sd:.3f}"]
+        print("  " + " | ".join(row_parts))
